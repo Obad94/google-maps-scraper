@@ -752,3 +752,13 @@ Please use this scraper responsibly and in accordance with all applicable laws a
 banner is generated using OpenAI's DALL-E
 > **Note:** If you register via the links on my page, I may get a commission. This is another way to support my work
 
+
+
+
+Rebuild your Docker image to apply the fix:
+
+docker build -t google-maps-scraper .
+
+Then run with your existing command:
+
+docker run -v ${PWD}\gmapsdata:/gmapsdata -p 8080:8080 google-maps-scraper -data-folder /gmapsdata

@@ -2,6 +2,7 @@ package gmaps
 
 import (
 	"context"
+	"net/http"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
@@ -9,6 +10,7 @@ import (
 	"github.com/gosom/google-maps-scraper/exiter"
 	"github.com/gosom/scrapemate"
 	"github.com/mcnijman/go-emailaddress"
+	"github.com/playwright-community/playwright-go"
 )
 
 type EmailExtractJobOptions func(*EmailExtractJob)
@@ -90,6 +92,50 @@ func (j *EmailExtractJob) Process(ctx context.Context, resp *scrapemate.Response
 
 func (j *EmailExtractJob) ProcessOnFetchError() bool {
 	return true
+}
+
+func (j *EmailExtractJob) BrowserActions(ctx context.Context, page playwright.Page) scrapemate.Response {
+	var resp scrapemate.Response
+
+	pageResponse, err := page.Goto(j.GetURL(), playwright.PageGotoOptions{
+		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
+	})
+	if err != nil {
+		resp.Error = err
+
+		return resp
+	}
+
+	const defaultTimeout = 5000
+
+	err = page.WaitForURL(page.URL(), playwright.PageWaitForURLOptions{
+		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
+		Timeout:   playwright.Float(defaultTimeout),
+	})
+	if err != nil {
+		resp.Error = err
+
+		return resp
+	}
+
+	resp.URL = pageResponse.URL()
+	resp.StatusCode = pageResponse.Status()
+	resp.Headers = make(http.Header, len(pageResponse.Headers()))
+
+	for k, v := range pageResponse.Headers() {
+		resp.Headers.Add(k, v)
+	}
+
+	body, err := page.Content()
+	if err != nil {
+		resp.Error = err
+
+		return resp
+	}
+
+	resp.Body = []byte(body)
+
+	return resp
 }
 
 func docEmailExtractor(doc *goquery.Document) []string {

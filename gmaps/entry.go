@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"iter"
 	"math"
+	"net/url"
 	"runtime/debug"
 	"slices"
 	"strconv"
@@ -314,7 +315,7 @@ func EntryFromJSON(raw []byte, reviewCountOnly ...bool) (entry Entry, err error)
 	)
 	entry.OpenHours = getHours(darray)
 	entry.PopularTimes = getPopularTimes(darray)
-	entry.WebSite = getNthElementAndCast[string](darray, 7, 0)
+	entry.WebSite = cleanWebsiteURL(getNthElementAndCast[string](darray, 7, 0))
 	entry.Phone = getNthElementAndCast[string](darray, 178, 0, 0)
 	entry.PlusCode = getNthElementAndCast[string](darray, 183, 2, 2, 0)
 	entry.ReviewRating = getNthElementAndCast[float64](darray, 4, 7)
@@ -678,4 +679,30 @@ func filterAndSortEntriesWithinRadius(entries []*Entry, lat, lon, radius float64
 	}
 
 	return slices.Collect(iter.Seq[*Entry](resultIterator))
+}
+
+// cleanWebsiteURL extracts the actual URL from Google redirect URLs
+// Google Maps often returns URLs like "/url?q=http://example.com/&..."
+// This function extracts the actual URL from the "q" parameter
+func cleanWebsiteURL(rawURL string) string {
+	if rawURL == "" {
+		return ""
+	}
+
+	// Check if this is a Google redirect URL
+	if strings.HasPrefix(rawURL, "/url?") {
+		// Parse the query parameters
+		parsedURL, err := url.Parse(rawURL)
+		if err != nil {
+			return rawURL
+		}
+
+		// Extract the "q" parameter which contains the actual URL
+		actualURL := parsedURL.Query().Get("q")
+		if actualURL != "" {
+			return actualURL
+		}
+	}
+
+	return rawURL
 }
