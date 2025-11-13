@@ -157,6 +157,42 @@ paths:
         '500':
           description: Internal server error
 
+  /api/v1/jobs/{id}/results:
+    get:
+      summary: Get job results as JSON (Google Maps format)
+      description: Returns the scraped places data in JSON format, similar to Google Maps API response
+      x-code-samples:
+        - lang: curl
+          source: |
+            curl -X GET "http://localhost:8080/api/v1/jobs/18eafda3-53a9-4970-ac96-8f8dfc7011c3/results"
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful response with places data
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Place'
+        '404':
+          description: Results not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '422':
+          description: Invalid ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
 components:
   schemas:
     ApiError:
@@ -249,4 +285,164 @@ components:
           type: array
           items:
             type: string
+
+    Place:
+      type: object
+      description: A place/business scraped from Google Maps
+      properties:
+        input_id:
+          type: string
+          description: Input identifier for the query
+        link:
+          type: string
+          description: Direct URL to the business listing on Google Maps
+        cid:
+          type: string
+          description: Customer ID (CID) used by Google Maps
+        title:
+          type: string
+          description: Name of the business
+        categories:
+          type: array
+          items:
+            type: string
+          description: Business categories
+        category:
+          type: string
+          description: Primary business category
+        address:
+          type: string
+          description: Street address of the business
+        open_hours:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+          description: Business operating hours by day
+        popular_times:
+          type: object
+          description: Estimated visitor traffic at different times
+        web_site:
+          type: string
+          description: Official business website
+        phone:
+          type: string
+          description: Business contact phone number
+        plus_code:
+          type: string
+          description: Plus code location identifier
+        review_count:
+          type: integer
+          description: Total number of customer reviews
+        review_rating:
+          type: number
+          description: Average star rating
+        reviews_per_rating:
+          type: object
+          description: Breakdown of reviews by star rating
+        latitude:
+          type: number
+          description: Latitude coordinate
+        longtitude:
+          type: number
+          description: Longitude coordinate
+        status:
+          type: string
+          description: Business status
+        description:
+          type: string
+          description: Business description
+        reviews_link:
+          type: string
+          description: Link to reviews section
+        thumbnail:
+          type: string
+          description: Thumbnail image URL
+        timezone:
+          type: string
+          description: Business timezone
+        price_range:
+          type: string
+          description: Price range indicator
+        data_id:
+          type: string
+          description: Internal Google Maps identifier
+        images:
+          type: array
+          items:
+            type: object
+            properties:
+              title:
+                type: string
+              image:
+                type: string
+        reservations:
+          type: array
+          items:
+            type: object
+            properties:
+              link:
+                type: string
+              source:
+                type: string
+        order_online:
+          type: array
+          items:
+            type: object
+            properties:
+              link:
+                type: string
+              source:
+                type: string
+        menu:
+          type: object
+          properties:
+            link:
+              type: string
+            source:
+              type: string
+        owner:
+          type: object
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+            link:
+              type: string
+        complete_address:
+          type: object
+          properties:
+            borough:
+              type: string
+            street:
+              type: string
+            city:
+              type: string
+            postal_code:
+              type: string
+            state:
+              type: string
+            country:
+              type: string
+        about:
+          type: array
+          items:
+            type: object
+        user_reviews:
+          type: array
+          items:
+            type: object
+          description: Sample of user reviews (first 8)
+        user_reviews_extended:
+          type: array
+          items:
+            type: object
+          description: Extended user reviews (up to 300)
+        emails:
+          type: array
+          items:
+            type: string
+          description: Email addresses extracted from business website
 

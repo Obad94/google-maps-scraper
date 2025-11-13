@@ -162,6 +162,7 @@ The Google Maps Scraper provides a RESTful API for programmatic management of sc
 - GET /api/v1/jobs/{id}: Get details of a specific job
 - DELETE /api/v1/jobs/{id}: Delete a job
 - GET /api/v1/jobs/{id}/download: Download job results as CSV
+- GET /api/v1/jobs/{id}/results: Get job results as JSON (Google Maps API format)
 
 ### API Documentation
 

@@ -119,6 +119,23 @@ func New(svc *Service, addr string) (*Server, error) {
 		ans.download(w, r)
 	})
 
+	mux.HandleFunc("/api/v1/jobs/{id}/results", func(w http.ResponseWriter, r *http.Request) {
+		r = requestWithID(r)
+
+		if r.Method != http.MethodGet {
+			ans := apiError{
+				Code:    http.StatusMethodNotAllowed,
+				Message: "Method not allowed",
+			}
+
+			renderJSON(w, http.StatusMethodNotAllowed, ans)
+
+			return
+		}
+
+		ans.apiGetResults(w, r)
+	})
+
 	handler := securityHeaders(mux)
 	ans.srv.Handler = handler
 
@@ -620,6 +637,34 @@ func (s *Server) apiDeleteJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) apiGetResults(w http.ResponseWriter, r *http.Request) {
+	id, ok := getIDFromRequest(r)
+	if !ok {
+		apiError := apiError{
+			Code:    http.StatusUnprocessableEntity,
+			Message: "Invalid ID",
+		}
+
+		renderJSON(w, http.StatusUnprocessableEntity, apiError)
+
+		return
+	}
+
+	results, err := s.svc.GetResults(r.Context(), id.String())
+	if err != nil {
+		apiError := apiError{
+			Code:    http.StatusNotFound,
+			Message: err.Error(),
+		}
+
+		renderJSON(w, http.StatusNotFound, apiError)
+
+		return
+	}
+
+	renderJSON(w, http.StatusOK, results)
 }
 
 func renderJSON(w http.ResponseWriter, code int, data any) {
