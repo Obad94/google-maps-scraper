@@ -653,21 +653,21 @@ func hoursFromDayStringArray(items []any) map[string][]string {
 			times := make([]string, 0, len(timesI))
 			for i := range timesI {
 				if timeStr, ok := timesI[i].(string); ok && timeStr != "" {
-					times = append(times, timeStr)
+					times = append(times, normalizeTimeString(timeStr))
 				}
 			}
 			if len(times) > 0 {
 				hours[day] = times
 			}
 		} else if timeStr, ok := itemArr[1].(string); ok && timeStr != "" {
-			hours[day] = []string{timeStr}
+			hours[day] = []string{normalizeTimeString(timeStr)}
 		} else if timeSlotsI, ok := itemArr[3].([]any); ok && len(timeSlotsI) > 0 { // new structure index 3
 			// New format: each slot is [formatted_string, [[hour, min], [hour, min]]]
 			times := make([]string, 0, len(timeSlotsI))
 			for _, slot := range timeSlotsI {
 				if slotArr, ok := slot.([]any); ok && len(slotArr) > 0 {
 					if timeStr, ok := slotArr[0].(string); ok && timeStr != "" {
-						times = append(times, timeStr)
+						times = append(times, normalizeTimeString(timeStr))
 					}
 				}
 			}
@@ -788,7 +788,41 @@ func formatInterval(a, b int) string {
 		h2, m2 = toHM(b / 60)
 	}
 
-	return fmt.Sprintf("%02d:%02d–%02d:%02d", h1, m1, h2, m2)
+	return fmt.Sprintf("%02d:%02d-%02d:%02d", h1, m1, h2, m2)
+}
+
+// normalizeTimeString replaces exotic unicode spaces/dashes with ASCII so that CSV viewers on Windows
+// (e.g., Excel with non-UTF-8 defaults) don't show mojibake like "â€¯" or "â€“".
+func normalizeTimeString(s string) string {
+	// Replace various narrow/thin/nb spaces with regular space
+	replacer := strings.NewReplacer(
+		"\u202F", " ", // NARROW NO-BREAK SPACE
+		"\u00A0", " ", // NO-BREAK SPACE
+		"\u2009", " ", // THIN SPACE
+		"\u200A", " ",
+		"\u2005", " ",
+		"\u2006", " ",
+		"\u2007", " ",
+		"\u2008", " ",
+		"\u2002", " ",
+		"\u2003", " ",
+		"\u2004", " ",
+		"\uFEFF", "",   // ZERO WIDTH NO-BREAK SPACE (BOM)
+		"\u200B", "",   // ZERO WIDTH SPACE
+		// Dashes/minus variants to ASCII hyphen
+		"\u2013", "-", // EN DASH
+		"\u2014", "-", // EM DASH
+		"\u2212", "-", // MINUS SIGN
+		"–", "-",
+		"—", "-",
+	)
+	out := replacer.Replace(s)
+	// Collapse multiple spaces
+	out = strings.TrimSpace(out)
+	for strings.Contains(out, "  ") {
+		out = strings.ReplaceAll(out, "  ", " ")
+	}
+	return out
 }
 
 func getPopularTimes(darray []any) map[string]map[int]int {
