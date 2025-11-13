@@ -497,24 +497,298 @@ func getLinkSource(params getLinkSourceParams) []LinkSource {
 
 //nolint:gomnd // it's ok, I need the indexes
 func getHours(darray []any) map[string][]string {
-	items := getNthElementAndCast[[]any](darray, 34, 1)
-	hours := make(map[string][]string, len(items))
+	// Try multiple known index locations where Google has stored hours
+	// Google frequently changes these indices, so we try several
+	knownPaths := [][]int{
+		{203, 0}, // New (Nov 2025) per field report
+		{34, 1},  // legacy
+		{30, 1},
+		{35, 1},
+		{33, 1},
+		{34, 0},
+		{31, 1},
+		// Some newer shapes embed hours under different nodes
+		{100, 3},
+		{84, 3},
+	}
 
+	// 1) Try known direct paths with textual weekday -> times mapping
+	var items []any
+	for _, path := range knownPaths {
+		if len(path) == 2 {
+			items = getNthElementAndCast[[]any](darray, path[0], path[1])
+			if looksLikeHoursData(items) {
+				return hoursFromDayStringArray(items)
+			}
+		}
+	}
+
+	// 2) Deep recursive search for arrays like [["Monday", ...], ...]
+	if items = findHoursByPattern(darray); len(items) > 0 {
+		return hoursFromDayStringArray(items)
+	}
+
+	// 3) Deep recursive search for numeric pattern: [[day,[ [start,end], ... ]], ...]
+	if num := findHoursNumericPattern(darray); len(num) > 0 {
+		return num
+	}
+
+	// Not found
+	return map[string][]string{}
+}
+
+// looksLikeHoursData validates if an array appears to be hours data
+// by checking if it contains at least 3 valid weekday entries
+func looksLikeHoursData(items []any) bool {
+	if len(items) < 3 {
+		return false
+	}
+
+	weekdays := map[string]bool{
+		"monday": true, "tuesday": true, "wednesday": true, "thursday": true,
+		"friday": true, "saturday": true, "sunday": true,
+		// common abbreviations
+		"mon": true, "tue": true, "tues": true, "wed": true, "thu": true, "thur": true, "thurs": true, "fri": true, "sat": true, "sun": true,
+	}
+
+	validCount := 0
 	for _, item := range items {
-		//nolint:errcheck // it's ok, I'm "sure" the indexes are correct
-		day := getNthElementAndCast[string](item.([]any), 0)
-		//nolint:errcheck // it's ok, I'm "sure" the indexes are correct
-		timesI := getNthElementAndCast[[]any](item.([]any), 1)
-		times := make([]string, len(timesI))
+		if itemArr, ok := item.([]any); ok && len(itemArr) >= 2 {
+			if dayName, ok := itemArr[0].(string); ok && weekdays[strings.ToLower(dayName)] {
+				validCount++
+			}
+		}
+	}
 
-		for i := range timesI {
-			times[i], _ = timesI[i].(string)
+	return validCount >= 3
+}
+
+// findHoursByPattern searches for hours data by pattern matching
+// Hours data typically has the structure: [["Monday", ["time"]], ["Tuesday", ["time"]], ...]
+func findHoursByPattern(arr []any) []any {
+	weekdays := map[string]bool{
+		"monday": true, "tuesday": true, "wednesday": true, "thursday": true,
+		"friday": true, "saturday": true, "sunday": true,
+		// common abbreviations
+		"mon": true, "tue": true, "tues": true, "wed": true, "thu": true, "thur": true, "thurs": true, "fri": true, "sat": true, "sun": true,
+	}
+
+	var searchRecursive func([]any, int) []any
+	searchRecursive = func(current []any, depth int) []any {
+		if depth > 10 || len(current) == 0 {
+			return nil
 		}
 
-		hours[day] = times
+		// Check if current array itself is hours data
+		// Format: [["Monday", ...], ["Tuesday", ...], ...]
+		if len(current) >= 2 {
+			validCount := 0
+			for _, item := range current {
+				if itemArr, ok := item.([]any); ok && len(itemArr) >= 2 {
+					if dayName, ok := itemArr[0].(string); ok && weekdays[strings.ToLower(dayName)] {
+						validCount++
+					}
+				}
+			}
+			// If we found at least 3 valid weekdays, this is likely hours data
+			if validCount >= 3 {
+				return current
+			}
+		}
+
+		// Search through each element
+		for _, item := range current {
+			if subArr, ok := item.([]any); ok {
+				// Check if this sub-array is hours data
+				if found := searchRecursive(subArr, depth+1); found != nil {
+					return found
+				}
+			}
+		}
+
+		return nil
+	}
+
+	return searchRecursive(arr, 0)
+}
+
+// hoursFromDayStringArray converts an array like [["Monday", ["9 AM–5 PM"]], ...] into a map
+func hoursFromDayStringArray(items []any) map[string][]string {
+	hours := make(map[string][]string, len(items))
+	normalize := func(day string) string {
+		switch strings.ToLower(day) {
+		case "mon", "monday":
+			return "Monday"
+		case "tue", "tues", "tuesday":
+			return "Tuesday"
+		case "wed", "wednesday":
+			return "Wednesday"
+		case "thu", "thur", "thurs", "thursday":
+			return "Thursday"
+		case "fri", "friday":
+			return "Friday"
+		case "sat", "saturday":
+			return "Saturday"
+		case "sun", "sunday":
+			return "Sunday"
+		default:
+			return day
+		}
+	}
+
+	for _, item := range items {
+		itemArr, ok := item.([]any)
+		if !ok || len(itemArr) < 2 {
+			continue
+		}
+
+		day, ok := itemArr[0].(string)
+		if !ok {
+			continue
+		}
+		day = normalize(day)
+
+		// array of strings times (old structure index 1)
+		if timesI, ok := itemArr[1].([]any); ok && len(timesI) > 0 {
+			times := make([]string, 0, len(timesI))
+			for i := range timesI {
+				if timeStr, ok := timesI[i].(string); ok && timeStr != "" {
+					times = append(times, timeStr)
+				}
+			}
+			if len(times) > 0 {
+				hours[day] = times
+			}
+		} else if timeStr, ok := itemArr[1].(string); ok && timeStr != "" {
+			hours[day] = []string{timeStr}
+		} else if timeSlotsI, ok := itemArr[3].([]any); ok && len(timeSlotsI) > 0 { // new structure index 3
+			// New format: each slot is [formatted_string, [[hour, min], [hour, min]]]
+			times := make([]string, 0, len(timeSlotsI))
+			for _, slot := range timeSlotsI {
+				if slotArr, ok := slot.([]any); ok && len(slotArr) > 0 {
+					if timeStr, ok := slotArr[0].(string); ok && timeStr != "" {
+						times = append(times, timeStr)
+					}
+				}
+			}
+			if len(times) > 0 {
+				hours[day] = times
+			}
+		}
 	}
 
 	return hours
+}
+
+// findHoursNumericPattern searches for arrays like [[day,[ [start,end], ... ]], ...]
+// where day is 1..7 (Mon..Sun) and start/end are integers representing minutes or seconds since midnight.
+func findHoursNumericPattern(arr []any) map[string][]string {
+	dayMap := map[int]string{1: "Monday", 2: "Tuesday", 3: "Wednesday", 4: "Thursday", 5: "Friday", 6: "Saturday", 7: "Sunday"}
+
+	var res map[string][]string
+
+	var dfs func([]any, int)
+	dfs = func(cur []any, depth int) {
+		if res != nil || depth > 12 || len(cur) == 0 {
+			return
+		}
+
+		// Does this look like [[day, intervals], ...] with day as number and intervals as [[a,b], ...]?
+		if len(cur) >= 3 { // at least 3 weekdays to be confident
+			valid := 0
+			tmp := make(map[string][][2]int, 7)
+			for _, it := range cur {
+				pair, ok := it.([]any)
+				if !ok || len(pair) < 2 {
+					continue
+				}
+				dayF, ok := pair[0].(float64)
+				if !ok {
+					continue
+				}
+				dayName, ok := dayMap[int(dayF)]
+				if !ok {
+					continue
+				}
+				intervalsArr, ok := pair[1].([]any)
+				if !ok {
+					continue
+				}
+				intervals := make([][2]int, 0, len(intervalsArr))
+				for _, inter := range intervalsArr {
+					iv, ok := inter.([]any)
+					if !ok || len(iv) < 2 {
+						continue
+					}
+					a, aok := iv[0].(float64)
+					b, bok := iv[1].(float64)
+					if !aok || !bok {
+						continue
+					}
+					intervals = append(intervals, [2]int{int(a), int(b)})
+				}
+				if len(intervals) > 0 {
+					tmp[dayName] = intervals
+					valid++
+				}
+			}
+
+			if valid >= 3 {
+				// Convert to strings
+				out := make(map[string][]string, len(tmp))
+				for day, ivs := range tmp {
+					for _, iv := range ivs {
+						out[day] = append(out[day], formatInterval(iv[0], iv[1]))
+					}
+				}
+				res = out
+				return
+			}
+		}
+
+		for _, it := range cur {
+			if sub, ok := it.([]any); ok {
+				dfs(sub, depth+1)
+				if res != nil {
+					return
+				}
+			}
+		}
+	}
+
+	dfs(arr, 0)
+	if res == nil {
+		return map[string][]string{}
+	}
+	return res
+}
+
+// formatInterval converts [start,end] into a human-readable string.
+// It tries to detect whether the numbers are minutes (<= 1440) or seconds (<= 86400).
+func formatInterval(a, b int) string {
+	toHM := func(x int) (int, int) {
+		h := x / 60
+		m := x % 60
+		return h, m
+	}
+
+	// Detect units
+	minutes := true
+	if a > 1440 || b > 1440 { // likely seconds
+		minutes = false
+	}
+
+	var h1, m1, h2, m2 int
+	if minutes {
+		h1, m1 = toHM(a)
+		h2, m2 = toHM(b)
+	} else {
+		// seconds to minutes
+		h1, m1 = toHM(a / 60)
+		h2, m2 = toHM(b / 60)
+	}
+
+	return fmt.Sprintf("%02d:%02d–%02d:%02d", h1, m1, h2, m2)
 }
 
 func getPopularTimes(darray []any) map[string]map[int]int {

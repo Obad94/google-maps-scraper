@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(go build:*)",
-      "Bash(where:*)"
+      "Bash(where:*)",
+      "Bash(go test:*)",
+      "Bash(python3:*)"
     ],
     "deny": [],
     "ask": []
