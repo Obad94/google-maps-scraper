@@ -327,7 +327,7 @@ func EntryFromJSON(raw []byte, reviewCountOnly ...bool) (entry Entry, err error)
 	entry.ReviewsLink = getNthElementAndCast[string](darray, 4, 3, 0)
 	entry.Thumbnail = getNthElementAndCast[string](darray, 72, 0, 1, 6, 0)
 	entry.Timezone = getNthElementAndCast[string](darray, 30)
-	entry.PriceRange = getNthElementAndCast[string](darray, 4, 2)
+	entry.PriceRange = normalizeTimeString(getNthElementAndCast[string](darray, 4, 2))
 	entry.DataID = getNthElementAndCast[string](darray, 10)
 
 	items := getLinkSource(getLinkSourceParams{
