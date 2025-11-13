@@ -67,6 +67,7 @@ func New(svc *Service, addr string) (*Server, error) {
 
 	// api routes
 	mux.HandleFunc("/api/docs", ans.redocHandler)
+	mux.HandleFunc("/api/swagger", ans.swaggerHandler)
 	mux.HandleFunc("/api/v1/jobs", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:
@@ -126,6 +127,7 @@ func New(svc *Service, addr string) (*Server, error) {
 		"static/templates/job_rows.html",
 		"static/templates/job_row.html",
 		"static/templates/redoc.html",
+		"static/templates/swagger.html",
 	}
 
 	for _, key := range tmplsKeys {
@@ -480,6 +482,17 @@ func (s *Server) redocHandler(w http.ResponseWriter, _ *http.Request) {
 	_ = tmpl.Execute(w, nil)
 }
 
+func (s *Server) swaggerHandler(w http.ResponseWriter, _ *http.Request) {
+	tmpl, ok := s.tmpl["static/templates/swagger.html"]
+	if !ok {
+		http.Error(w, "missing tpl", http.StatusInternalServerError)
+
+		return
+	}
+
+	_ = tmpl.Execute(w, nil)
+}
+
 func (s *Server) apiScrape(w http.ResponseWriter, r *http.Request) {
 	var req apiScrapeRequest
 
@@ -627,9 +640,9 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-XSS-Protection", "1; mode=block")
 		w.Header().Set("Content-Security-Policy",
 			"default-src 'self'; "+
-				"script-src 'self' cdn.redoc.ly cdnjs.cloudflare.com 'unsafe-inline' 'unsafe-eval'; "+
+				"script-src 'self' cdn.redoc.ly cdnjs.cloudflare.com unpkg.com 'unsafe-inline' 'unsafe-eval'; "+
 				"worker-src 'self' blob:; "+
-				"style-src 'self' 'unsafe-inline' fonts.googleapis.com; "+
+				"style-src 'self' 'unsafe-inline' fonts.googleapis.com unpkg.com; "+
 				"img-src 'self' data: cdn.redoc.ly; "+
 				"font-src 'self' fonts.gstatic.com; "+
 				"connect-src 'self'")

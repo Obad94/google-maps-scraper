@@ -163,7 +163,12 @@ The Google Maps Scraper provides a RESTful API for programmatic management of sc
 - DELETE /api/v1/jobs/{id}: Delete a job
 - GET /api/v1/jobs/{id}/download: Download job results as CSV
 
-For detailed API documentation, refer to the OpenAPI 3.0.3 specification available through Swagger UI or Redoc when running the app https://localhost:8080/api/docs
+### API Documentation
+
+For detailed API documentation, refer to the OpenAPI 3.0.3 specification available when running the app:
+
+- **Swagger UI** (Interactive API testing): http://localhost:8080/api/swagger
+- **Redoc** (Read-only documentation): http://localhost:8080/api/docs
 
 
 ## 🌟 Support the Project!
