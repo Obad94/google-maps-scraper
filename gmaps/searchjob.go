@@ -114,8 +114,18 @@ func removeFirstLine(data []byte) []byte {
 }
 
 func buildGoogleMapsParams(params *MapSearchParams) map[string]string {
-	params.ViewportH = 800
-	params.ViewportW = 600
+	// Respect the viewport provided by the caller. Previously this function
+	// was overwriting the viewport to a hardcoded 800x600 which effectively
+	// shrank the visible map area and reduced the number of results returned
+	// by the maps "tbm=map" endpoint. Keeping the caller-provided viewport
+	// helps align the returned results with the expected zoom/window size.
+	// If a caller didn't set a viewport, default to a sane desktop-like size.
+	if params.ViewportW == 0 {
+		params.ViewportW = 1920
+	}
+	if params.ViewportH == 0 {
+		params.ViewportH = 800
+	}
 
 	ans := map[string]string{
 		"tbm":      "map",

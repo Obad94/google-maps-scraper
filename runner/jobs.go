@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"plugin"
@@ -86,6 +87,9 @@ func CreateSeedJobs(
 		var job scrapemate.IJob
 
 		if !fastmode {
+			// In normal mode, if geo coords and a positive radius are provided,
+			// generate multiple seed jobs that tile the desired radius, so we
+			// effectively pan the map and collect results outside a single viewport.
 			opts := []gmaps.GmapJobOptions{}
 
 			if dedup != nil {
@@ -101,17 +105,38 @@ func CreateSeedJobs(
 			}
 
 			// Add radius filtering if coordinates and radius are provided
+			origLat, origLon := 0.0, 0.0
+			latOK, lonOK := false, false
 			if geoCoordinates != "" && radius > 0 {
 				parts := strings.Split(geoCoordinates, ",")
 				if len(parts) == 2 {
-					lat, err1 := strconv.ParseFloat(parts[0], 64)
-					lon, err2 := strconv.ParseFloat(parts[1], 64)
-					if err1 == nil && err2 == nil {
-						opts = append(opts, gmaps.WithRadiusFiltering(lat, lon, radius))
+					if latParsed, err1 := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64); err1 == nil {
+						origLat = latParsed
+						latOK = true
+					}
+					if lonParsed, err2 := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64); err2 == nil {
+						origLon = lonParsed
+						lonOK = true
 					}
 				}
 			}
 
+			if geoCoordinates != "" && radius > 0 && latOK && lonOK {
+				// Ensure place-level filtering enforces the true radius from the original center
+				opts = append(opts, gmaps.WithRadiusFiltering(origLat, origLon, radius))
+
+				// Generate tile centers to cover the circle; reuse the same input id to group outputs
+				centers := generateTileCenters(origLat, origLon, radius)
+				for _, c := range centers {
+					gc := fmt.Sprintf("%f,%f", c[0], c[1])
+					jobs = append(jobs, gmaps.NewGmapJob(id, langCode, query, maxDepth, email, gc, zoom, opts...))
+				}
+
+				// Continue to next keyword; we already appended jobs for all tiles
+				continue
+			}
+
+			// Fallback: no radius tiling, create a single job centered on provided geo (or none)
 			job = gmaps.NewGmapJob(id, langCode, query, maxDepth, email, geoCoordinates, zoom, opts...)
 		} else {
 			jparams := gmaps.MapSearchParams{
@@ -140,6 +165,51 @@ func CreateSeedJobs(
 	}
 
 	return jobs, scanner.Err()
+}
+
+// generateTileCenters returns a list of [lat, lon] points that cover a circle of
+// radiusMeters around (lat0, lon0). We use a simple overlapping grid so the
+// normal-mode crawler can load multiple map views and escape a single viewport.
+// The step is roughly radius/3 with a floor to avoid excessive tiles for small
+// radii. The result count is capped implicitly by the grid size.
+func generateTileCenters(lat0, lon0, radiusMeters float64) [][2]float64 {
+	if radiusMeters <= 0 {
+		return [][2]float64{{lat0, lon0}}
+	}
+
+	// meters to degrees conversions
+	const metersPerDegLat = 111320.0
+	metersPerDegLon := 111320.0 * math.Cos(lat0*math.Pi/180.0)
+	if metersPerDegLon < 1e-6 {
+		metersPerDegLon = 1e-6
+	}
+
+	// Choose an overlapping step; about 1/3 of the radius provides ~7x7 max grid
+	step := radiusMeters / 3.0
+	if step < 800 { // avoid too many tiles on very small radius
+		step = 800
+	}
+
+	centers := make([][2]float64, 0, 49)
+	// Always include the center
+	centers = append(centers, [2]float64{lat0, lon0})
+
+	r2 := radiusMeters * radiusMeters
+	for dy := -radiusMeters; dy <= radiusMeters; dy += step {
+		for dx := -radiusMeters; dx <= radiusMeters; dx += step {
+			if dx == 0 && dy == 0 {
+				continue
+			}
+			if dx*dx+dy*dy > r2 {
+				continue
+			}
+			dLat := dy / metersPerDegLat
+			dLon := dx / metersPerDegLon
+			centers = append(centers, [2]float64{lat0 + dLat, lon0 + dLon})
+		}
+	}
+
+	return centers
 }
 
 func LoadCustomWriter(pluginDir, pluginName string) (scrapemate.ResultWriter, error) {
