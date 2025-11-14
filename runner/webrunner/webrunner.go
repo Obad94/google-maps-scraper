@@ -351,13 +351,33 @@ func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) error {
 
 		go exitMonitor.Run(mateCtx)
 
-		err = mate.Start(mateCtx, seedJobs...)
-		if err != nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+		// Run Start in a separate goroutine so we can detect hangs after context cancellation
+		startDone := make(chan error, 1)
+		go func() {
+			startDone <- mate.Start(mateCtx, seedJobs...)
+		}()
+
+		var startErr error
+		select {
+		case startErr = <-startDone:
+			// Start returned normally (success or error)
+		case <-mateCtx.Done():
+			// Context timed out/canceled; wait a short grace for Start to return, then proceed
+			select {
+			case startErr = <-startDone:
+				// returned during grace
+			case <-time.After(15 * time.Second):
+				log.Printf("job %s: Start() did not return within grace period after context cancellation; proceeding", job.ID)
+				startErr = mateCtx.Err()
+			}
+		}
+
+		if startErr != nil && !errors.Is(startErr, context.DeadlineExceeded) && !errors.Is(startErr, context.Canceled) {
 			cancel()
 			job.Status = web.StatusFailed
-			jobErr = err
-			log.Printf("scrapemate failed for job %s: %v", job.ID, err)
-			return err
+			jobErr = startErr
+			log.Printf("scrapemate failed for job %s: %v", job.ID, startErr)
+			return startErr
 		}
 
 		cancel()
