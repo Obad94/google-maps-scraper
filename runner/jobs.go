@@ -100,6 +100,18 @@ func CreateSeedJobs(
 				opts = append(opts, gmaps.WithExtraReviews())
 			}
 
+			// Add radius filtering if coordinates and radius are provided
+			if geoCoordinates != "" && radius > 0 {
+				parts := strings.Split(geoCoordinates, ",")
+				if len(parts) == 2 {
+					lat, err1 := strconv.ParseFloat(parts[0], 64)
+					lon, err2 := strconv.ParseFloat(parts[1], 64)
+					if err1 == nil && err2 == nil {
+						opts = append(opts, gmaps.WithRadiusFiltering(lat, lon, radius))
+					}
+				}
+			}
+
 			job = gmaps.NewGmapJob(id, langCode, query, maxDepth, email, geoCoordinates, zoom, opts...)
 		} else {
 			jparams := gmaps.MapSearchParams{

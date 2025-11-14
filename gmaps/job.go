@@ -28,6 +28,12 @@ type GmapJob struct {
 	Deduper             deduper.Deduper
 	ExitMonitor         exiter.Exiter
 	ExtractExtraReviews bool
+
+	// Radius filtering
+	FilterByRadius bool
+	CenterLat      float64
+	CenterLon      float64
+	RadiusMeters   float64
 }
 
 func NewGmapJob(
@@ -96,6 +102,15 @@ func WithExtraReviews() GmapJobOptions {
 	}
 }
 
+func WithRadiusFiltering(lat, lon, radiusMeters float64) GmapJobOptions {
+	return func(j *GmapJob) {
+		j.FilterByRadius = true
+		j.CenterLat = lat
+		j.CenterLon = lon
+		j.RadiusMeters = radiusMeters
+	}
+}
+
 func (j *GmapJob) UseInResults() bool {
 	return false
 }
@@ -120,6 +135,9 @@ func (j *GmapJob) Process(ctx context.Context, resp *scrapemate.Response) (any, 
 		if j.ExitMonitor != nil {
 			jopts = append(jopts, WithPlaceJobExitMonitor(j.ExitMonitor))
 		}
+		if j.FilterByRadius {
+			jopts = append(jopts, WithRadiusFilter(j.CenterLat, j.CenterLon, j.RadiusMeters))
+		}
 
 		placeJob := NewPlaceJob(j.ID, j.LangCode, resp.URL, j.ExtractEmail, j.ExtractExtraReviews, jopts...)
 
@@ -130,6 +148,9 @@ func (j *GmapJob) Process(ctx context.Context, resp *scrapemate.Response) (any, 
 				jopts := []PlaceJobOptions{}
 				if j.ExitMonitor != nil {
 					jopts = append(jopts, WithPlaceJobExitMonitor(j.ExitMonitor))
+				}
+				if j.FilterByRadius {
+					jopts = append(jopts, WithRadiusFilter(j.CenterLat, j.CenterLon, j.RadiusMeters))
 				}
 
 				nextJob := NewPlaceJob(j.ID, j.LangCode, href, j.ExtractEmail, j.ExtractExtraReviews, jopts...)

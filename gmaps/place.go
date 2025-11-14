@@ -23,6 +23,12 @@ type PlaceJob struct {
 	ExtractEmail        bool
 	ExitMonitor         exiter.Exiter
 	ExtractExtraReviews bool
+
+	// Radius filtering
+	FilterByRadius bool
+	CenterLat      float64
+	CenterLon      float64
+	RadiusMeters   float64
 }
 
 func NewPlaceJob(parentID, langCode, u string, extractEmail, extraExtraReviews bool, opts ...PlaceJobOptions) *PlaceJob {
@@ -60,6 +66,15 @@ func WithPlaceJobExitMonitor(exitMonitor exiter.Exiter) PlaceJobOptions {
 	}
 }
 
+func WithRadiusFilter(lat, lon, radiusMeters float64) PlaceJobOptions {
+	return func(j *PlaceJob) {
+		j.FilterByRadius = true
+		j.CenterLat = lat
+		j.CenterLon = lon
+		j.RadiusMeters = radiusMeters
+	}
+}
+
 func (j *PlaceJob) Process(_ context.Context, resp *scrapemate.Response) (any, []scrapemate.IJob, error) {
 	defer func() {
 		resp.Document = nil
@@ -81,6 +96,16 @@ func (j *PlaceJob) Process(_ context.Context, resp *scrapemate.Response) (any, [
 
 	if entry.Link == "" {
 		entry.Link = j.GetURL()
+	}
+
+	// Filter by radius if configured
+	if j.FilterByRadius && !entry.isWithinRadius(j.CenterLat, j.CenterLon, j.RadiusMeters) {
+		// Place is outside radius, don't include in results
+		j.UsageInResultststs = false
+		if j.ExitMonitor != nil {
+			j.ExitMonitor.IncrPlacesCompleted(1)
+		}
+		return nil, nil, nil
 	}
 
 	allReviewsRaw, ok := resp.Meta["reviews_raw"].(fetchReviewsResponse)
