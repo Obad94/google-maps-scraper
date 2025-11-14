@@ -5,7 +5,11 @@
       "Bash(where:*)",
       "Bash(go test:*)",
       "Bash(python3:*)",
-      "Bash(docker build:*)"
+      "Bash(docker build:*)",
+      "Bash(nul)",
+      "Bash(go list:*)",
+      "Bash(dir \"C:\\Users\\Obad\\Desktop\\google-maps-scraper\\gmapsdata\\*.csv\" /o-d)",
+      "Bash(go mod download:*)"
     ],
     "deny": [],
     "ask": []

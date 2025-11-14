@@ -67,6 +67,36 @@ func (s *Service) SelectWorking(ctx context.Context) ([]Job, error) {
 	return s.repo.Select(ctx, SelectParams{Status: StatusWorking})
 }
 
+func (s *Service) Retry(ctx context.Context, id string) error {
+	// Get the job
+	job, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return fmt.Errorf("failed to get job: %w", err)
+	}
+
+	// Only allow retrying failed jobs
+	if job.Status != StatusFailed {
+		return fmt.Errorf("only failed jobs can be retried, current status: %s", job.Status)
+	}
+
+	// Delete the old CSV file if it exists (partial data from failed run)
+	if strings.Contains(id, "/") || strings.Contains(id, "\\") || strings.Contains(id, "..") {
+		return fmt.Errorf("invalid job id")
+	}
+
+	datapath := filepath.Join(s.dataFolder, id+".csv")
+	if _, err := os.Stat(datapath); err == nil {
+		if err := os.Remove(datapath); err != nil {
+			return fmt.Errorf("failed to remove old csv file: %w", err)
+		}
+	}
+
+	// Change status to pending so it will be picked up by the worker
+	job.Status = StatusPending
+
+	return s.repo.Update(ctx, &job)
+}
+
 func (s *Service) GetCSV(_ context.Context, id string) (string, error) {
 	if strings.Contains(id, "/") || strings.Contains(id, "\\") || strings.Contains(id, "..") {
 		return "", fmt.Errorf("invalid file name")

@@ -172,6 +172,14 @@ func (r *fileRunner) setWriters() error {
 			resultsWriter = r.outfile
 		}
 
+		// Write UTF-8 BOM for proper encoding detection in Excel and other applications
+		if !r.cfg.JSON && resultsWriter != os.Stdout {
+			bom := []byte{0xEF, 0xBB, 0xBF}
+			if _, err := resultsWriter.Write(bom); err != nil {
+				return fmt.Errorf("failed to write UTF-8 BOM: %w", err)
+			}
+		}
+
 		csvWriter := csvwriter.NewCsvWriter(csv.NewWriter(resultsWriter))
 
 		if r.cfg.JSON {

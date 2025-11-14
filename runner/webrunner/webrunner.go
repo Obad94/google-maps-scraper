@@ -65,6 +65,11 @@ func New(cfg *runner.Config) (runner.Runner, error) {
 }
 
 func (w *webrunner) Run(ctx context.Context) error {
+	// Recover any jobs stuck in "working" status from previous server runs
+	if err := w.recoverStuckJobsOnStartup(ctx); err != nil {
+		log.Printf("WARNING: failed to recover stuck jobs on startup: %v", err)
+	}
+
 	egroup, ctx := errgroup.WithContext(ctx)
 
 	egroup.Go(func() error {
@@ -83,6 +88,37 @@ func (w *webrunner) Run(ctx context.Context) error {
 }
 
 func (w *webrunner) Close(context.Context) error {
+	return nil
+}
+
+func (w *webrunner) recoverStuckJobsOnStartup(ctx context.Context) error {
+	// When the server starts, any jobs in "working" status must be from a previous
+	// server run and should be marked as failed since they can't actually be running
+	workingJobs, err := w.svc.SelectWorking(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to select working jobs: %w", err)
+	}
+
+	if len(workingJobs) == 0 {
+		log.Printf("startup recovery: no stuck jobs found")
+		return nil
+	}
+
+	log.Printf("startup recovery: found %d stuck jobs, marking them as failed", len(workingJobs))
+
+	for i := range workingJobs {
+		job := &workingJobs[i]
+		log.Printf("startup recovery: marking job %s (%s) as failed (was stuck in working status)", job.ID, job.Name)
+
+		job.Status = web.StatusFailed
+		if err := w.svc.Update(ctx, job); err != nil {
+			log.Printf("startup recovery: failed to update job %s: %v", job.ID, err)
+			continue
+		}
+
+		log.Printf("startup recovery: successfully recovered job %s", job.ID)
+	}
+
 	return nil
 }
 
@@ -206,7 +242,7 @@ func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) error {
 			log.Printf("job %s: stuck in working status, marking as failed", job.ID)
 		}
 
-		// Always try to update the final status
+		// Always try to update the final status (best-effort)
 		log.Printf("job %s: updating final status to '%s'", job.ID, job.Status)
 		if err := w.svc.Update(ctx, job); err != nil {
 			log.Printf("job %s: ERROR - failed to update final status: %v", job.ID, err)
@@ -242,6 +278,14 @@ func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) error {
 		_ = outfile.Close()
 	}()
 
+	// Write UTF-8 BOM for proper encoding detection in Excel and other applications
+	bom := []byte{0xEF, 0xBB, 0xBF}
+	if _, err := outfile.Write(bom); err != nil {
+		job.Status = web.StatusFailed
+		jobErr = fmt.Errorf("failed to write UTF-8 BOM: %w", err)
+		return jobErr
+	}
+
 	mate, err := w.setupMate(ctx, outfile, job)
 	if err != nil {
 		job.Status = web.StatusFailed
@@ -249,6 +293,7 @@ func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) error {
 		return err
 	}
 
+	// Ensure resources are released on any exit
 	defer mate.Close()
 
 	var coords string
@@ -318,10 +363,28 @@ func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) error {
 		cancel()
 	}
 
-	mate.Close()
-
-	// Success - mark as completed
+	// At this point, scraping finished successfully. Mark job as OK
 	job.Status = web.StatusOK
+
+	// Persist status immediately before any potentially blocking cleanup
+	if err := w.svc.Update(ctx, job); err != nil {
+		log.Printf("job %s: WARNING - scrape finished but failed to persist 'ok' status: %v", job.ID, err)
+	} else {
+		log.Printf("job %s: persisted 'ok' status", job.ID)
+	}
+
+	// Best-effort close without risking a hang: attempt close with a short timeout
+	closed := make(chan struct{})
+	go func() {
+		mate.Close()
+		close(closed)
+	}()
+	select {
+	case <-closed:
+		// closed successfully
+	case <-time.After(5 * time.Second):
+		log.Printf("job %s: Close() taking too long; continuing shutdown", job.ID)
+	}
 
 	return nil
 }

@@ -136,6 +136,29 @@ func New(svc *Service, addr string) (*Server, error) {
 		ans.apiGetResults(w, r)
 	})
 
+	mux.HandleFunc("/api/v1/jobs/{id}/retry", func(w http.ResponseWriter, r *http.Request) {
+		r = requestWithID(r)
+
+		if r.Method != http.MethodPost {
+			ans := apiError{
+				Code:    http.StatusMethodNotAllowed,
+				Message: "Method not allowed",
+			}
+
+			renderJSON(w, http.StatusMethodNotAllowed, ans)
+
+			return
+		}
+
+		ans.apiRetryJob(w, r)
+	})
+
+	mux.HandleFunc("/retry", func(w http.ResponseWriter, r *http.Request) {
+		r = requestWithID(r)
+
+		ans.retry(w, r)
+	})
+
 	handler := securityHeaders(mux)
 	ans.srv.Handler = handler
 
@@ -441,7 +464,7 @@ func (s *Server) download(w http.ResponseWriter, r *http.Request) {
 
 	fileName := filepath.Base(filePath)
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", fileName))
-	w.Header().Set("Content-Type", "text/csv")
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 
 	_, err = io.Copy(w, file)
 	if err != nil {
@@ -472,6 +495,46 @@ func (s *Server) delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) retry(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
+		return
+	}
+
+	retryID, ok := getIDFromRequest(r)
+	if !ok {
+		http.Error(w, "Invalid ID", http.StatusUnprocessableEntity)
+
+		return
+	}
+
+	err := s.svc.Retry(r.Context(), retryID.String())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+
+		return
+	}
+
+	// Return the updated job row as HTML using HTMX pattern
+	job, err := s.svc.Get(r.Context(), retryID.String())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+
+		return
+	}
+
+	tmpl, ok := s.tmpl["static/templates/job_row.html"]
+	if !ok {
+		http.Error(w, "missing template", http.StatusInternalServerError)
+
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html")
+	_ = tmpl.Execute(w, job)
 }
 
 type apiError struct {
@@ -637,6 +700,47 @@ func (s *Server) apiDeleteJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) apiRetryJob(w http.ResponseWriter, r *http.Request) {
+	id, ok := getIDFromRequest(r)
+	if !ok {
+		apiError := apiError{
+			Code:    http.StatusUnprocessableEntity,
+			Message: "Invalid ID",
+		}
+
+		renderJSON(w, http.StatusUnprocessableEntity, apiError)
+
+		return
+	}
+
+	err := s.svc.Retry(r.Context(), id.String())
+	if err != nil {
+		apiError := apiError{
+			Code:    http.StatusBadRequest,
+			Message: err.Error(),
+		}
+
+		renderJSON(w, http.StatusBadRequest, apiError)
+
+		return
+	}
+
+	// Get the updated job and return it
+	job, err := s.svc.Get(r.Context(), id.String())
+	if err != nil {
+		apiError := apiError{
+			Code:    http.StatusInternalServerError,
+			Message: err.Error(),
+		}
+
+		renderJSON(w, http.StatusInternalServerError, apiError)
+
+		return
+	}
+
+	renderJSON(w, http.StatusOK, job)
 }
 
 func (s *Server) apiGetResults(w http.ResponseWriter, r *http.Request) {

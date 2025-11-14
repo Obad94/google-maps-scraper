@@ -193,6 +193,53 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
 
+  /api/v1/jobs/{id}/retry:
+    post:
+      summary: Retry a failed job
+      description: Retries a job that has failed. Only jobs with status 'failed' can be retried. The job status will be changed to 'pending' and will be picked up by the worker for execution.
+      x-code-samples:
+        - lang: curl
+          source: |
+            curl -X POST "http://localhost:8080/api/v1/jobs/18eafda3-53a9-4970-ac96-8f8dfc7011c3/retry"
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The ID of the failed job to retry
+      responses:
+        '200':
+          description: Job successfully queued for retry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '400':
+          description: Bad request - job cannot be retried (not in failed status)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '422':
+          description: Invalid ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
 components:
   schemas:
     ApiError:

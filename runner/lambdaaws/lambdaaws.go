@@ -67,6 +67,12 @@ func (l *lambdaAwsRunner) handler(ctx context.Context, input lInput) error {
 
 	defer out.Close()
 
+	// Write UTF-8 BOM for proper encoding detection in Excel and other applications
+	bom := []byte{0xEF, 0xBB, 0xBF}
+	if _, err := out.Write(bom); err != nil {
+		return fmt.Errorf("failed to write UTF-8 BOM: %w", err)
+	}
+
 	app, err := l.getApp(ctx, input, out)
 	if err != nil {
 		return err
