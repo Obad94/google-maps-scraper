@@ -126,10 +126,11 @@ func rowToJob(row scannable) (web.Job, error) {
 	}
 
 	ans := web.Job{
-		ID:     j.ID,
-		Name:   j.Name,
-		Status: j.Status,
-		Date:   time.Unix(j.CreatedAt, 0).UTC(),
+		ID:        j.ID,
+		Name:      j.Name,
+		Status:    j.Status,
+		Date:      time.Unix(j.CreatedAt, 0).UTC(),
+		UpdatedAt: time.Unix(j.UpdatedAt, 0).UTC(),
 	}
 
 	err = json.Unmarshal([]byte(j.Data), &ans.Data)

@@ -4,7 +4,8 @@
       "Bash(go build:*)",
       "Bash(where:*)",
       "Bash(go test:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(docker build:*)"
     ],
     "deny": [],
     "ask": []

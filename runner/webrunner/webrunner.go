@@ -72,6 +72,10 @@ func (w *webrunner) Run(ctx context.Context) error {
 	})
 
 	egroup.Go(func() error {
+		return w.recoverStuckJobs(ctx)
+	})
+
+	egroup.Go(func() error {
 		return w.srv.Start(ctx)
 	})
 
@@ -86,14 +90,24 @@ func (w *webrunner) work(ctx context.Context) error {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 
+	log.Printf("job worker started, checking for pending jobs every second")
+
 	for {
 		select {
 		case <-ctx.Done():
+			log.Printf("job worker shutting down")
 			return nil
 		case <-ticker.C:
 			jobs, err := w.svc.SelectPending(ctx)
 			if err != nil {
-				return err
+				// Don't exit the work loop on error, just log it and continue
+				log.Printf("error selecting pending jobs: %v", err)
+				continue
+			}
+
+			if len(jobs) == 0 {
+				// No pending jobs, continue waiting
+				continue
 			}
 
 			for i := range jobs {
@@ -101,6 +115,7 @@ func (w *webrunner) work(ctx context.Context) error {
 				case <-ctx.Done():
 					return nil
 				default:
+					log.Printf("picked up job %s (%s) for processing", jobs[i].ID, jobs[i].Name)
 					t0 := time.Now().UTC()
 					if err := w.scrapeJob(ctx, &jobs[i]); err != nil {
 						params := map[string]any{
@@ -113,7 +128,7 @@ func (w *webrunner) work(ctx context.Context) error {
 
 						_ = runner.Telemetry().Send(ctx, evt)
 
-						log.Printf("error scraping job %s: %v", jobs[i].ID, err)
+						log.Printf("ERROR: job %s (%s) failed after %v: %v", jobs[i].ID, jobs[i].Name, time.Now().UTC().Sub(t0), err)
 					} else {
 						params := map[string]any{
 							"job_count": len(jobs[i].Data.Keywords),
@@ -122,7 +137,55 @@ func (w *webrunner) work(ctx context.Context) error {
 
 						_ = runner.Telemetry().Send(ctx, tlmt.NewEvent("web_runner", params))
 
-						log.Printf("job %s scraped successfully", jobs[i].ID)
+						log.Printf("SUCCESS: job %s (%s) completed in %v", jobs[i].ID, jobs[i].Name, time.Now().UTC().Sub(t0))
+					}
+				}
+			}
+		}
+	}
+}
+
+func (w *webrunner) recoverStuckJobs(ctx context.Context) error {
+	// Check for stuck jobs every 30 seconds
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	log.Printf("stuck job recovery mechanism started")
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			workingJobs, err := w.svc.SelectWorking(ctx)
+			if err != nil {
+				log.Printf("error selecting working jobs for recovery: %v", err)
+				continue
+			}
+
+			now := time.Now().UTC()
+			for i := range workingJobs {
+				job := &workingJobs[i]
+
+				// Calculate timeout: max of 1 hour or 2x the job's MaxTime
+				timeout := time.Hour
+				if job.Data.MaxTime > 0 {
+					jobTimeout := 2 * job.Data.MaxTime
+					if jobTimeout > timeout {
+						timeout = jobTimeout
+					}
+				}
+
+				// If job hasn't been updated in timeout period, mark as failed
+				timeSinceUpdate := now.Sub(job.UpdatedAt)
+				if timeSinceUpdate > timeout {
+					log.Printf("recovering stuck job %s (stuck for %v, timeout: %v)", job.ID, timeSinceUpdate, timeout)
+
+					job.Status = web.StatusFailed
+					if err := w.svc.Update(ctx, job); err != nil {
+						log.Printf("failed to recover stuck job %s: %v", job.ID, err)
+					} else {
+						log.Printf("successfully recovered stuck job %s", job.ID)
 					}
 				}
 			}
@@ -131,23 +194,47 @@ func (w *webrunner) work(ctx context.Context) error {
 }
 
 func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) error {
+	log.Printf("job %s: changing status to 'working'", job.ID)
 	job.Status = web.StatusWorking
+
+	// Use defer to ensure job status is always updated, even on panic or early returns
+	var jobErr error
+	defer func() {
+		// If job status is still "working", it means something went wrong
+		if job.Status == web.StatusWorking {
+			job.Status = web.StatusFailed
+			log.Printf("job %s: stuck in working status, marking as failed", job.ID)
+		}
+
+		// Always try to update the final status
+		log.Printf("job %s: updating final status to '%s'", job.ID, job.Status)
+		if err := w.svc.Update(ctx, job); err != nil {
+			log.Printf("job %s: ERROR - failed to update final status: %v", job.ID, err)
+		} else {
+			log.Printf("job %s: status successfully updated to '%s'", job.ID, job.Status)
+		}
+	}()
 
 	err := w.svc.Update(ctx, job)
 	if err != nil {
+		jobErr = err
+		job.Status = web.StatusFailed
+		log.Printf("job %s: ERROR - failed to update to 'working' status: %v", job.ID, err)
 		return err
 	}
 
 	if len(job.Data.Keywords) == 0 {
 		job.Status = web.StatusFailed
-
-		return w.svc.Update(ctx, job)
+		jobErr = fmt.Errorf("no keywords provided")
+		return jobErr
 	}
 
 	outpath := filepath.Join(w.cfg.DataFolder, job.ID+".csv")
 
 	outfile, err := os.Create(outpath)
 	if err != nil {
+		job.Status = web.StatusFailed
+		jobErr = err
 		return err
 	}
 
@@ -158,12 +245,7 @@ func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) error {
 	mate, err := w.setupMate(ctx, outfile, job)
 	if err != nil {
 		job.Status = web.StatusFailed
-
-		err2 := w.svc.Update(ctx, job)
-		if err2 != nil {
-			log.Printf("failed to update job status: %v", err2)
-		}
-
+		jobErr = err
 		return err
 	}
 
@@ -197,11 +279,8 @@ func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) error {
 		w.cfg.ExtraReviews,
 	)
 	if err != nil {
-		err2 := w.svc.Update(ctx, job)
-		if err2 != nil {
-			log.Printf("failed to update job status: %v", err2)
-		}
-
+		job.Status = web.StatusFailed
+		jobErr = err
 		return err
 	}
 
@@ -230,12 +309,9 @@ func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) error {
 		err = mate.Start(mateCtx, seedJobs...)
 		if err != nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
 			cancel()
-
-			err2 := w.svc.Update(ctx, job)
-			if err2 != nil {
-				log.Printf("failed to update job status: %v", err2)
-			}
-
+			job.Status = web.StatusFailed
+			jobErr = err
+			log.Printf("scrapemate failed for job %s: %v", job.ID, err)
 			return err
 		}
 
@@ -244,9 +320,10 @@ func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) error {
 
 	mate.Close()
 
+	// Success - mark as completed
 	job.Status = web.StatusOK
 
-	return w.svc.Update(ctx, job)
+	return nil
 }
 
 func (w *webrunner) setupMate(_ context.Context, writer io.Writer, job *web.Job) (*scrapemateapp.ScrapemateApp, error) {

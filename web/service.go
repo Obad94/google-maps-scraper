@@ -63,6 +63,10 @@ func (s *Service) SelectPending(ctx context.Context) ([]Job, error) {
 	return s.repo.Select(ctx, SelectParams{Status: StatusPending, Limit: 1})
 }
 
+func (s *Service) SelectWorking(ctx context.Context) ([]Job, error) {
+	return s.repo.Select(ctx, SelectParams{Status: StatusWorking})
+}
+
 func (s *Service) GetCSV(_ context.Context, id string) (string, error) {
 	if strings.Contains(id, "/") || strings.Contains(id, "\\") || strings.Contains(id, "..") {
 		return "", fmt.Errorf("invalid file name")
