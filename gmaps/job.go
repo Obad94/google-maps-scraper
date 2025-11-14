@@ -314,6 +314,8 @@ func scroll(ctx context.Context,
 ) (int, error) {
 	expr := `async () => {
 		const el = document.querySelector("` + scrollSelector + `");
+		if (!el) return -1;
+
 		el.scrollTop = el.scrollHeight;
 
 		return new Promise((resolve, reject) => {
@@ -324,55 +326,92 @@ func scroll(ctx context.Context,
 	}`
 
 	var currentScrollHeight int
-	// Scroll to the bottom of the page.
-	waitTime := 100.
-	cnt := 0
+	var stableCount int // Count of consecutive times height hasn't changed
+	scrollAttempts := 0
 
 	const (
-		timeout  = 500
-		maxWait2 = 2000
+		initialWait       = 800  // Initial wait time for content to load (ms)
+		maxWait           = 2500 // Maximum wait time between scrolls (ms)
+		minWait           = 500  // Minimum wait time between scrolls (ms)
+		stableThreshold   = 2    // Number of stable checks before considering content fully loaded
+		retryWaitIncrease = 500  // Additional wait time when content appears stable
 	)
 
-	for i := 0; i < maxDepth; i++ {
-		cnt++
-		waitTime2 := timeout * cnt
+	// Progressive wait time - starts at initialWait, increases gradually
+	waitTime := float64(initialWait)
 
-		if waitTime2 > timeout {
-			waitTime2 = maxWait2
+	for i := 0; i < maxDepth; i++ {
+		scrollAttempts++
+
+		// Calculate wait time for this scroll iteration
+		// If content was stable last time, wait longer to give it more time to load
+		currentWaitTime := int(waitTime)
+		if stableCount > 0 {
+			currentWaitTime += retryWaitIncrease * stableCount
+		}
+		if currentWaitTime > maxWait {
+			currentWaitTime = maxWait
+		}
+		if currentWaitTime < minWait {
+			currentWaitTime = minWait
 		}
 
-		// Scroll to the bottom of the page.
-		scrollHeight, err := page.Evaluate(fmt.Sprintf(expr, waitTime2))
+		// Scroll to the bottom and wait for content to load
+		scrollHeight, err := page.Evaluate(fmt.Sprintf(expr, currentWaitTime))
 		if err != nil {
-			return cnt, err
+			return scrollAttempts, err
 		}
 
 		height, ok := scrollHeight.(int)
 		if !ok {
-			return cnt, fmt.Errorf("scrollHeight is not an int")
+			// Element not found or invalid height
+			if height, ok := scrollHeight.(float64); ok && height == -1 {
+				return scrollAttempts, fmt.Errorf("scroll element %q not found", scrollSelector)
+			}
+			return scrollAttempts, fmt.Errorf("scrollHeight is not an int: %v", scrollHeight)
 		}
 
+		// Check if height has changed (new content loaded)
 		if height == currentScrollHeight {
-			break
+			stableCount++
+
+			// Only exit early if we've seen stable height multiple times
+			// This ensures we don't exit prematurely due to slow network
+			if stableCount >= stableThreshold {
+				// Content appears fully loaded - no more items
+				break
+			}
+
+			// Content might still be loading, continue with increased wait time
+			waitTime += float64(retryWaitIncrease)
+		} else {
+			// New content loaded - reset stable count
+			stableCount = 0
+			currentScrollHeight = height
+
+			// Gradually increase wait time for subsequent scrolls
+			waitTime *= 1.3
 		}
 
-		currentScrollHeight = height
-
+		// Respect context cancellation
 		select {
 		case <-ctx.Done():
-			return currentScrollHeight, nil
+			return scrollAttempts, nil
 		default:
 		}
 
-		waitTime *= 1.5
-
-		if waitTime > maxWait2 {
-			waitTime = maxWait2
+		// Cap the wait time
+		if waitTime > float64(maxWait) {
+			waitTime = float64(maxWait)
+		}
+		if waitTime < float64(minWait) {
+			waitTime = float64(minWait)
 		}
 
+		// Additional small wait between scroll iterations to ensure smooth scrolling
 		//nolint:staticcheck // TODO replace with the new playwright API
-		page.WaitForTimeout(waitTime)
+		page.WaitForTimeout(200)
 	}
 
-	return cnt, nil
+	return scrollAttempts, nil
 }
