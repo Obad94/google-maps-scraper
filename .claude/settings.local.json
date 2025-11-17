@@ -1,7 +1,13 @@
 {
   "permissions": {
     "allow": [
-      "Bash(docker build:*)"
+      "Bash(docker build:*)",
+      "Bash(docker run:*)",
+      "Bash(MSYS_NO_PATHCONV=1 docker run:*)",
+      "Bash(docker stop:*)",
+      "Bash(docker rm:*)",
+      "Bash(xargs:*)",
+      "Bash(\"c:\\Users\\Obad\\Desktop\\google-maps-scraper\\gmapsdata\\test_normal.txt\")"
     ],
     "deny": [],
     "ask": []

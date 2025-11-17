@@ -331,9 +331,9 @@ func scroll(ctx context.Context,
 
 	const (
 		initialWait       = 800  // Initial wait time for content to load (ms)
-		maxWait           = 2500 // Maximum wait time between scrolls (ms)
+		maxWait           = 60000 // Maximum wait time between scrolls (ms)
 		minWait           = 500  // Minimum wait time between scrolls (ms)
-		stableThreshold   = 2    // Number of stable checks before considering content fully loaded
+		stableThreshold   = 5    // Number of stable checks before considering content fully loaded
 		retryWaitIncrease = 500  // Additional wait time when content appears stable
 	)
 
