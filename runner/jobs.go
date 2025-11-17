@@ -24,6 +24,7 @@ func CreateNearbySearchJobs(
 	email bool,
 	geoCoordinates string,
 	radius float64,
+	zoomForURL float64,
 	dedup deduper.Deduper,
 	exitMonitor exiter.Exiter,
 	extraReviews bool,
@@ -86,6 +87,10 @@ func CreateNearbySearchJobs(
 
 		if radius > 0 {
 			opts = append(opts, gmaps.WithNearbyRadiusFiltering(lat, lon, radius))
+		}
+
+		if zoomForURL > 0 {
+			opts = append(opts, gmaps.WithNearbyZoom(zoomForURL))
 		}
 
 		job := gmaps.NewNearbySearchJob(id, langCode, lat, lon, category, maxDepth, email, opts...)

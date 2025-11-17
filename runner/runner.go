@@ -77,6 +77,7 @@ type Config struct {
 	FastMode                 bool
 	NearbyMode               bool
 	Radius                   float64
+	ZoomForURL               int
 	Addr                     string
 	DisablePageReuse         bool
 	ExtraReviews             bool
@@ -123,7 +124,8 @@ func ParseConfig() *Config {
 	flag.IntVar(&cfg.AwsLambdaChunkSize, "aws-lambda-chunk-size", 100, "AWS Lambda chunk size")
 	flag.BoolVar(&cfg.FastMode, "fast-mode", false, "fast mode (reduced data collection)")
 	flag.BoolVar(&cfg.NearbyMode, "nearby-mode", false, "nearby search mode (right-click search nearby simulation)")
-	flag.Float64Var(&cfg.Radius, "radius", 10000, "search radius in meters. Default is 10000 meters")
+	flag.Float64Var(&cfg.Radius, "radius", 10000, "search radius in meters for filtering results. Default is 10000 meters")
+	flag.IntVar(&cfg.ZoomForURL, "zoom-for-url", 2000, "zoom distance in meters for URL generation (affects map view). Default is 2000 meters")
 	flag.StringVar(&cfg.Addr, "addr", ":8080", "address to listen on for web server")
 	flag.BoolVar(&cfg.DisablePageReuse, "disable-page-reuse", false, "disable page reuse in playwright")
 	flag.BoolVar(&cfg.ExtraReviews, "extra-reviews", false, "enable extra reviews collection")

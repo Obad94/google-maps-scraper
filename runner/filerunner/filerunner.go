@@ -83,6 +83,7 @@ func (r *fileRunner) Run(ctx context.Context) (err error) {
 			r.cfg.Email,
 			r.cfg.GeoCoordinates,
 			r.cfg.Radius,
+			float64(r.cfg.ZoomForURL),
 			dedup,
 			exitMonitor,
 			r.cfg.ExtraReviews,

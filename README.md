@@ -223,6 +223,37 @@ When you use the fast mode ensure that you have provided:
 
 **Fast mode is Beta, you may experience blocking**
 
+## Nearby Mode
+
+Nearby mode simulates the "Search Nearby" feature in Google Maps, returning places closest to your specified coordinates.
+
+### Important Parameters
+
+**`-zoom-for-url`** (Default: 2000 meters)
+- Controls the map view distance in the Google Maps URL
+- Affects how the map is initially displayed
+- Smaller values = more zoomed in, larger values = more zoomed out
+- This is used for URL generation only
+
+**`-radius`** (Default: 10000 meters)  
+- Filters which places are saved to your results
+- Only places within this distance from center point are kept
+- This is used for post-processing filter
+
+**Why separate parameters?**
+- You can use a tight zoom (e.g., 500m) for faster map loading
+- While still filtering a wider radius (e.g., 1000m) to catch all nearby places
+- Gives you precise control over both map view and result filtering
+
+### Example
+```bash
+-zoom-for-url 500 -radius 1000
+```
+This will:
+1. Load the map zoomed to 500m view
+2. Scroll and extract places
+3. Filter and save only places within 1000m
+
 ## Extracted Data Points
 
 #### 1. `input_id`
@@ -481,7 +512,7 @@ try `./google-maps-scraper -h` to see the command line options available:
   -proxies string
         comma separated list of proxies to use in the format protocol://user:pass@host:port example: socks5://localhost:9050 or http://user:pass@localhost:9050
   -radius float
-        search radius in meters. Default is 10000 meters (default 10000)
+        search radius in meters for filtering results. Default is 10000 meters (default 10000)
   -results string
         path to the results file [default: stdout] (default "stdout")
   -s3-bucket string
@@ -492,6 +523,8 @@ try `./google-maps-scraper -h` to see the command line options available:
         use custom writer plugin (format: 'dir:pluginName')
   -zoom int
         set zoom level (0-21) for search (default 15)
+  -zoom-for-url int
+        zoom distance in meters for URL generation (affects map view). Default is 2000 meters (default 2000)
 ```
 
 ## Using a custom writer
@@ -771,7 +804,7 @@ docker run -v ${PWD}\gmapsdata:/gmapsdata -p 8080:8080 google-maps-scraper -data
 
 
 Powershell:
-docker run --rm --shm-size=1g -v ${PWD}\gmapsdata:/gmapsdata -p 8080:8080 google-maps-scraper -nearby-mode -geo "24.93584,67.13801" -input /gmapsdata/nearby-categories.txt -results /gmapsdata/nearby_results_final.csv -radius 500 -depth 20 -email -exit-on-inactivity 10m
+docker run --rm --shm-size=1g -v ${PWD}\gmapsdata:/gmapsdata -p 8080:8080 google-maps-scraper -nearby-mode -geo "24.93584,67.13801" -input /gmapsdata/nearby-categories.txt -results /gmapsdata/nearby_results_final.csv -zoom-for-url 500 -radius 1000 -depth 20 -email -exit-on-inactivity 10m
 
 Git Bash:
-MSYS_NO_PATHCONV=1 docker run --rm --shm-size=1g -v "${PWD}/gmapsdata:/gmapsdata" -p 8080:8080 google-maps-scraper -nearby-mode -geo "24.93584,67.13801" -input /gmapsdata/nearby-categories.txt -results /gmapsdata/nearby_results_final.csv -radius 500 -depth 20 -email -exit-on-inactivity 10m
+MSYS_NO_PATHCONV=1 docker run --rm --shm-size=1g -v "${PWD}/gmapsdata:/gmapsdata" -p 8080:8080 google-maps-scraper -nearby-mode -geo "24.93584,67.13801" -input /gmapsdata/nearby-categories.txt -results /gmapsdata/nearby_results_final.csv -zoom-for-url 500 -radius 1000 -depth 20 -email -exit-on-inactivity 10m

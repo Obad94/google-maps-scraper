@@ -33,9 +33,12 @@ type NearbySearchJob struct {
 	ExitMonitor         exiter.Exiter
 	ExtractExtraReviews bool
 
-	// Radius filtering
+	// Radius filtering - for filtering results by distance
 	FilterByRadius bool
 	RadiusMeters   float64
+
+	// Zoom for URL - for setting the map view distance (separate from filtering)
+	ZoomMeters float64
 
 	// Progressive extraction - stores URLs found during scrolling
 	extractedURLs []string
@@ -76,15 +79,15 @@ func NewNearbySearchJob(
 		ExtractEmail: extractEmail,
 	}
 
-	// Apply options first to get RadiusMeters
+	// Apply options first to get RadiusMeters and ZoomMeters
 	for _, opt := range opts {
 		opt(&job)
 	}
 
-	// Now construct the search URL with proper radius
-	distanceMeters := int(job.RadiusMeters)
-	if distanceMeters <= 0 {
-		distanceMeters = 2000 // Default 2km
+	// Use ZoomMeters for URL generation (map view), default to 2000m if not set
+	zoomMeters := int(job.ZoomMeters)
+	if zoomMeters <= 0 {
+		zoomMeters = 2000 // Default 2km for map view
 	}
 
 	// Construct the nearby search URL (Google will redirect to proper format)
@@ -92,7 +95,7 @@ func NewNearbySearchJob(
 		url.QueryEscape(category),
 		latitude,
 		longitude,
-		distanceMeters,
+		zoomMeters,
 	)
 
 	return &job
@@ -123,6 +126,12 @@ func WithNearbyRadiusFiltering(lat, lon, radiusMeters float64) NearbySearchJobOp
 		// Also update the center coordinates for filtering
 		j.Latitude = lat
 		j.Longitude = lon
+	}
+}
+
+func WithNearbyZoom(zoomMeters float64) NearbySearchJobOptions {
+	return func(j *NearbySearchJob) {
+		j.ZoomMeters = zoomMeters
 	}
 }
 
@@ -223,25 +232,26 @@ func (j *NearbySearchJob) BrowserActions(ctx context.Context, page playwright.Pa
 	var resp scrapemate.Response
 
 	// Build the TRUE nearby search URL (proximity-based, not relevance-based)
-	// Format: https://www.google.com/maps/search/CATEGORY/@LAT,LON,RADIUSm/data=!3m2!1e3!4b1!4m7!2m6!3m5!...
+	// Format: https://www.google.com/maps/search/CATEGORY/@LAT,LON,ZOOMm/data=!3m2!1e3!4b1!4m7!2m6!3m5!...
 	// The key is the data parameter with !1e3 which enables proximity sorting
 
-	distanceMeters := int(j.RadiusMeters)
-	if distanceMeters <= 0 {
-		distanceMeters = 2000 // Default 2km
+	// Use ZoomMeters for map view (URL generation)
+	zoomMeters := int(j.ZoomMeters)
+	if zoomMeters <= 0 {
+		zoomMeters = 2000 // Default 2km for map view
 	}
 
 	// Construct the TRUE nearby search URL with proximity sorting (!1e3)
 	// This mimics right-click "Search Nearby" behavior which shows CLOSEST places first
 	// Format breakdown:
-	// - @LAT,LON,RADIUSm = center point and radius
+	// - @LAT,LON,ZOOMm = center point and zoom distance (affects map view)
 	// - !3m2!1e3!4b1 = enables nearby/proximity mode (1e3 is key)
 	// - !4m7!2m6!3m5!1sCATEGORY!2sLAT,LON!4m2!1dLON!2dLAT = search parameters
 	encodedCategory := url.QueryEscape(j.Category)
 	
 	// Build the data parameter for true nearby search
 	// !1e3 is crucial - it enables proximity-based sorting instead of relevance
-	dataParam := fmt.Sprintf("!3m2!1e3!4b1!4m7!2m6!3m5!1s%s!2s%.4f,+%.4f!4m2!1d%.7f!2d%.7f",
+	dataParam := fmt.Sprintf("!3m1!1e3!4b1!4m7!2m6!3m5!1s%s!2s%.4f,+%.4f!4m2!1d%.7f!2d%.7f",
 		encodedCategory,
 		j.Latitude,
 		j.Longitude,
@@ -253,7 +263,7 @@ func (j *NearbySearchJob) BrowserActions(ctx context.Context, page playwright.Pa
 		encodedCategory,
 		j.Latitude,
 		j.Longitude,
-		distanceMeters,
+		zoomMeters,
 		dataParam,
 	)
 
@@ -264,7 +274,8 @@ func (j *NearbySearchJob) BrowserActions(ctx context.Context, page playwright.Pa
 
 	// Navigate directly to the search nearby URL
 	log := scrapemate.GetLoggerFromContext(ctx)
-	log.Info(fmt.Sprintf("Navigating to: %s", searchURL))
+	log.Info(fmt.Sprintf("Navigating to initial URL: %s", searchURL))
+	log.Info(fmt.Sprintf("Using zoom: %dm for map view, radius: %.0fm for filtering results", zoomMeters, j.RadiusMeters))
 
 	pageResponse, err := page.Goto(searchURL, playwright.PageGotoOptions{
 		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
@@ -292,9 +303,9 @@ func (j *NearbySearchJob) BrowserActions(ctx context.Context, page playwright.Pa
 	// NOW check the URL after Google Maps has completed its JavaScript redirect
 	finalURL := page.URL()
 	if finalURL != searchURL {
-		log.Info(fmt.Sprintf("Google Maps redirected to: %s", finalURL))
+		log.Info(fmt.Sprintf("✓ Google Maps redirected to final URL: %s", finalURL))
 	} else {
-		log.Info(fmt.Sprintf("Final URL: %s", finalURL))
+		log.Info(fmt.Sprintf("✓ Final URL (no redirect): %s", finalURL))
 	}
 
 	// Wait for the results feed to appear
