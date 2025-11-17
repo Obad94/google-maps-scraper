@@ -17,6 +17,84 @@ import (
 	"github.com/gosom/scrapemate"
 )
 
+func CreateNearbySearchJobs(
+	langCode string,
+	r io.Reader,
+	maxDepth int,
+	email bool,
+	geoCoordinates string,
+	radius float64,
+	dedup deduper.Deduper,
+	exitMonitor exiter.Exiter,
+	extraReviews bool,
+) (jobs []scrapemate.IJob, err error) {
+	if geoCoordinates == "" {
+		return nil, fmt.Errorf("geo coordinates are required for nearby search mode")
+	}
+
+	parts := strings.Split(geoCoordinates, ",")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid geo coordinates: %s", geoCoordinates)
+	}
+
+	lat, err := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid latitude: %w", err)
+	}
+
+	lon, err := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid longitude: %w", err)
+	}
+
+	if lat < -90 || lat > 90 {
+		return nil, fmt.Errorf("invalid latitude: %f", lat)
+	}
+
+	if lon < -180 || lon > 180 {
+		return nil, fmt.Errorf("invalid longitude: %f", lon)
+	}
+
+	scanner := bufio.NewScanner(r)
+
+	for scanner.Scan() {
+		category := strings.TrimSpace(scanner.Text())
+		if category == "" {
+			continue
+		}
+
+		var id string
+
+		if before, after, ok := strings.Cut(category, "#!#"); ok {
+			category = strings.TrimSpace(before)
+			id = strings.TrimSpace(after)
+		}
+
+		opts := []gmaps.NearbySearchJobOptions{}
+
+		if dedup != nil {
+			opts = append(opts, gmaps.WithNearbyDeduper(dedup))
+		}
+
+		if exitMonitor != nil {
+			opts = append(opts, gmaps.WithNearbyExitMonitor(exitMonitor))
+		}
+
+		if extraReviews {
+			opts = append(opts, gmaps.WithNearbyExtraReviews())
+		}
+
+		if radius > 0 {
+			opts = append(opts, gmaps.WithNearbyRadiusFiltering(lat, lon, radius))
+		}
+
+		job := gmaps.NewNearbySearchJob(id, langCode, lat, lon, category, maxDepth, email, opts...)
+		jobs = append(jobs, job)
+	}
+
+	return jobs, scanner.Err()
+}
+
 func CreateSeedJobs(
 	fastmode bool,
 	langCode string,

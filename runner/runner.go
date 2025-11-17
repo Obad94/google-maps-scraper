@@ -75,6 +75,7 @@ type Config struct {
 	FunctionName             string
 	AwsLambdaChunkSize       int
 	FastMode                 bool
+	NearbyMode               bool
 	Radius                   float64
 	Addr                     string
 	DisablePageReuse         bool
@@ -121,6 +122,7 @@ func ParseConfig() *Config {
 	flag.StringVar(&cfg.S3Bucket, "s3-bucket", "", "S3 bucket name")
 	flag.IntVar(&cfg.AwsLambdaChunkSize, "aws-lambda-chunk-size", 100, "AWS Lambda chunk size")
 	flag.BoolVar(&cfg.FastMode, "fast-mode", false, "fast mode (reduced data collection)")
+	flag.BoolVar(&cfg.NearbyMode, "nearby-mode", false, "nearby search mode (right-click search nearby simulation)")
 	flag.Float64Var(&cfg.Radius, "radius", 10000, "search radius in meters. Default is 10000 meters")
 	flag.StringVar(&cfg.Addr, "addr", ":8080", "address to listen on for web server")
 	flag.BoolVar(&cfg.DisablePageReuse, "disable-page-reuse", false, "disable page reuse in playwright")

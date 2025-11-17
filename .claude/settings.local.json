@@ -1,19 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(go build:*)",
-      "Bash(where:*)",
-      "Bash(go test:*)",
-      "Bash(python3:*)",
-      "Bash(docker build:*)",
-      "Bash(nul)",
-      "Bash(go list:*)",
-      "Bash(dir \"C:\\Users\\Obad\\Desktop\\google-maps-scraper\\gmapsdata\\*.csv\" /o-d)",
-      "Bash(go mod download:*)",
-      "Bash(curl:*)",
-      "Bash(cmd /c \"dir /b /o-d C:\\Users\\Obad\\Desktop\\google-maps-scraper\\gmapsdata\\*.csv\")",
-      "Bash(for file in C:UsersObadDesktopgoogle-maps-scrapergmapsdata*.csv)",
-      "Bash(done)"
+      "Bash(docker build:*)"
     ],
     "deny": [],
     "ask": []

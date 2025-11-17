@@ -75,21 +75,38 @@ func (r *fileRunner) Run(ctx context.Context) (err error) {
 	dedup := deduper.New()
 	exitMonitor := exiter.New()
 
-	seedJobs, err = runner.CreateSeedJobs(
-		r.cfg.FastMode,
-		r.cfg.LangCode,
-		r.input,
-		r.cfg.MaxDepth,
-		r.cfg.Email,
-		r.cfg.GeoCoordinates,
-		r.cfg.Zoom,
-		r.cfg.Radius,
-		dedup,
-		exitMonitor,
-		r.cfg.ExtraReviews,
-	)
-	if err != nil {
-		return err
+	if r.cfg.NearbyMode {
+		seedJobs, err = runner.CreateNearbySearchJobs(
+			r.cfg.LangCode,
+			r.input,
+			r.cfg.MaxDepth,
+			r.cfg.Email,
+			r.cfg.GeoCoordinates,
+			r.cfg.Radius,
+			dedup,
+			exitMonitor,
+			r.cfg.ExtraReviews,
+		)
+		if err != nil {
+			return err
+		}
+	} else {
+		seedJobs, err = runner.CreateSeedJobs(
+			r.cfg.FastMode,
+			r.cfg.LangCode,
+			r.input,
+			r.cfg.MaxDepth,
+			r.cfg.Email,
+			r.cfg.GeoCoordinates,
+			r.cfg.Zoom,
+			r.cfg.Radius,
+			dedup,
+			exitMonitor,
+			r.cfg.ExtraReviews,
+		)
+		if err != nil {
+			return err
+		}
 	}
 
 	exitMonitor.SetSeedCount(len(seedJobs))
@@ -216,7 +233,21 @@ func (r *fileRunner) setApp() error {
 			opts = append(opts, scrapemateapp.WithJS(scrapemateapp.DisableImages()))
 		}
 	} else {
+		// Fast mode uses HTTP requests, not browser automation
 		opts = append(opts, scrapemateapp.WithStealth("firefox"))
+	}
+
+	// Nearby mode always requires browser automation for UI interaction
+	if r.cfg.NearbyMode {
+		if r.cfg.Debug {
+			opts = append(opts, scrapemateapp.WithJS(
+				scrapemateapp.Headfull(),
+				scrapemateapp.DisableImages(),
+			),
+			)
+		} else {
+			opts = append(opts, scrapemateapp.WithJS(scrapemateapp.DisableImages()))
+		}
 	}
 
 	if !r.cfg.DisablePageReuse {
