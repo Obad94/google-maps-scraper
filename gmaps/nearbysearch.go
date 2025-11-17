@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
@@ -35,6 +36,10 @@ type NearbySearchJob struct {
 	// Radius filtering
 	FilterByRadius bool
 	RadiusMeters   float64
+
+	// Progressive extraction - stores URLs found during scrolling
+	extractedURLs []string
+	urlsMutex     sync.Mutex
 }
 
 func NewNearbySearchJob(
@@ -134,11 +139,6 @@ func (j *NearbySearchJob) Process(ctx context.Context, resp *scrapemate.Response
 
 	log := scrapemate.GetLoggerFromContext(ctx)
 
-	doc, err := goquery.NewDocumentFromReader(strings.NewReader(string(resp.Body)))
-	if err != nil {
-		return nil, nil, err
-	}
-
 	next := make([]scrapemate.IJob, 0)
 
 	jopts := []PlaceJobOptions{}
@@ -151,37 +151,59 @@ func (j *NearbySearchJob) Process(ctx context.Context, resp *scrapemate.Response
 		jopts = append(jopts, WithRadiusFilter(j.Latitude, j.Longitude, j.RadiusMeters))
 	}
 
-	// Extract place links from the feed
-	doc.Find(`div[role=feed] div[jsaction]>a`).Each(func(_ int, s *goquery.Selection) {
-		if href := s.AttrOr("href", ""); href != "" {
+	// Check if we used progressive extraction
+	if string(resp.Body) == "progressive_extraction_completed" {
+		// Use progressively extracted URLs from BrowserActions
+		j.urlsMutex.Lock()
+		urls := make([]string, len(j.extractedURLs))
+		copy(urls, j.extractedURLs)
+		j.urlsMutex.Unlock()
+
+		for _, href := range urls {
 			nextJob := NewPlaceJob(j.ID, j.LangCode, href, j.ExtractEmail, j.ExtractExtraReviews, jopts...)
 			if j.Deduper == nil || j.Deduper.AddIfNotExists(ctx, href) {
 				next = append(next, nextJob)
 			}
 		}
-	})
+	} else {
+		// Fallback: parse HTML document (for backward compatibility)
+		doc, err := goquery.NewDocumentFromReader(strings.NewReader(string(resp.Body)))
+		if err != nil {
+			return nil, nil, err
+		}
 
-	// Debug: If no places found with primary selector, try alternative selectors
-	if len(next) == 0 {
-		log.Info("No places found with primary selector, checking alternatives...")
-		
-		// Try direct href selector
-		altCount := 0
-		doc.Find(`a[href*='/maps/place/']`).Each(func(_ int, s *goquery.Selection) {
-			altCount++
-		})
-		log.Info(fmt.Sprintf("Alternative selector found %d place links", altCount))
-		
-		// Try the alternative and use it if it finds results
-		if altCount > 0 {
-			doc.Find(`a[href*='/maps/place/']`).Each(func(_ int, s *goquery.Selection) {
-				if href := s.AttrOr("href", ""); href != "" {
-					nextJob := NewPlaceJob(j.ID, j.LangCode, href, j.ExtractEmail, j.ExtractExtraReviews, jopts...)
-					if j.Deduper == nil || j.Deduper.AddIfNotExists(ctx, href) {
-						next = append(next, nextJob)
-					}
+		// Extract place links from the feed
+		doc.Find(`div[role=feed] div[jsaction]>a`).Each(func(_ int, s *goquery.Selection) {
+			if href := s.AttrOr("href", ""); href != "" {
+				nextJob := NewPlaceJob(j.ID, j.LangCode, href, j.ExtractEmail, j.ExtractExtraReviews, jopts...)
+				if j.Deduper == nil || j.Deduper.AddIfNotExists(ctx, href) {
+					next = append(next, nextJob)
 				}
+			}
+		})
+
+		// Debug: If no places found with primary selector, try alternative selectors
+		if len(next) == 0 {
+			log.Info("No places found with primary selector, checking alternatives...")
+			
+			// Try direct href selector
+			altCount := 0
+			doc.Find(`a[href*='/maps/place/']`).Each(func(_ int, s *goquery.Selection) {
+				altCount++
 			})
+			log.Info(fmt.Sprintf("Alternative selector found %d place links", altCount))
+			
+			// Try the alternative and use it if it finds results
+			if altCount > 0 {
+				doc.Find(`a[href*='/maps/place/']`).Each(func(_ int, s *goquery.Selection) {
+					if href := s.AttrOr("href", ""); href != "" {
+						nextJob := NewPlaceJob(j.ID, j.LangCode, href, j.ExtractEmail, j.ExtractExtraReviews, jopts...)
+						if j.Deduper == nil || j.Deduper.AddIfNotExists(ctx, href) {
+							next = append(next, nextJob)
+						}
+					}
+				})
+			}
 		}
 	}
 
@@ -287,38 +309,70 @@ func (j *NearbySearchJob) BrowserActions(ctx context.Context, page playwright.Pa
 
 	log.Info(fmt.Sprintf("Starting to scroll (max depth: %d) to find nearby places...", j.MaxDepth))
 
-	// Scroll through the results
-	scrollAttempts, err := scroll(ctx, page, j.MaxDepth, feedSelector)
+	// Create callback to extract places progressively during scrolling
+	extractCallback := func(page playwright.Page, depth int) (int, error) {
+		body, err := page.Content()
+		if err != nil {
+			return 0, err
+		}
+
+		doc, err := goquery.NewDocumentFromReader(strings.NewReader(body))
+		if err != nil {
+			return 0, err
+		}
+
+		// Track URLs we've seen before this iteration
+		seenBefore := make(map[string]bool)
+		j.urlsMutex.Lock()
+		for _, u := range j.extractedURLs {
+			seenBefore[u] = true
+		}
+		j.urlsMutex.Unlock()
+
+		newURLs := []string{}
+
+		// Extract place URLs from current page state
+		doc.Find(`div[role=feed] div[jsaction]>a`).Each(func(_ int, s *goquery.Selection) {
+			if href := s.AttrOr("href", ""); href != "" {
+				if !seenBefore[href] {
+					newURLs = append(newURLs, href)
+				}
+			}
+		})
+
+		// Try alternative selector if primary found nothing
+		if len(newURLs) == 0 {
+			doc.Find(`a[href*='/maps/place/']`).Each(func(_ int, s *goquery.Selection) {
+				if href := s.AttrOr("href", ""); href != "" {
+					if !seenBefore[href] {
+						newURLs = append(newURLs, href)
+					}
+				}
+			})
+		}
+
+		if len(newURLs) > 0 {
+			j.urlsMutex.Lock()
+			j.extractedURLs = append(j.extractedURLs, newURLs...)
+			j.urlsMutex.Unlock()
+
+			log.Info(fmt.Sprintf("Depth %d: found %d new places (%d total)", depth, len(newURLs), len(j.extractedURLs)))
+		}
+
+		return len(newURLs), nil
+	}
+
+	// Scroll through the results with progressive extraction
+	scrollAttempts, err := scroll(ctx, page, j.MaxDepth, feedSelector, extractCallback)
 	if err != nil {
 		resp.Error = fmt.Errorf("failed to scroll results: %w", err)
 		return resp
 	}
 
-	log.Info(fmt.Sprintf("Completed scrolling after %d attempts", scrollAttempts))
+	log.Info(fmt.Sprintf("Completed scrolling after %d attempts, found %d total places", scrollAttempts, len(j.extractedURLs)))
 
-	// Wait for place cards to appear in the feed after scrolling
-	// This ensures JavaScript has finished rendering the results
-	placeCardSelector := `div[role='feed'] a[href*='/maps/place/']`
-	_, err = page.WaitForSelector(placeCardSelector, playwright.PageWaitForSelectorOptions{
-		Timeout: playwright.Float(10000),
-		State:   playwright.WaitForSelectorStateVisible,
-	})
-	if err != nil {
-		log.Info(fmt.Sprintf("Warning: Place cards not immediately visible after scrolling: %v", err))
-		// Continue anyway - there might be results or we'll discover the issue in Process
-	} else {
-		log.Info("Place cards detected in feed")
-	}
-
-	// Additional wait for JavaScript rendering to complete
-	time.Sleep(2 * time.Second)
-
-	// Get the page content
-	body, err := page.Content()
-	if err != nil {
-		resp.Error = fmt.Errorf("failed to get page content: %w", err)
-		return resp
-	}
+	// Store the extracted URLs marker instead of full HTML
+	resp.Body = []byte("progressive_extraction_completed")
 
 	resp.URL = page.URL()
 	resp.StatusCode = pageResponse.Status()
@@ -327,8 +381,6 @@ func (j *NearbySearchJob) BrowserActions(ctx context.Context, page playwright.Pa
 	for k, v := range pageResponse.Headers() {
 		resp.Headers.Add(k, v)
 	}
-
-	resp.Body = []byte(body)
 
 	return resp
 }

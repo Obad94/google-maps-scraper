@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
@@ -34,6 +35,10 @@ type GmapJob struct {
 	CenterLat      float64
 	CenterLon      float64
 	RadiusMeters   float64
+
+	// Progressive extraction - stores URLs found during scrolling
+	extractedURLs []string
+	urlsMutex     sync.Mutex
 }
 
 func NewGmapJob(
@@ -123,13 +128,9 @@ func (j *GmapJob) Process(ctx context.Context, resp *scrapemate.Response) (any, 
 
 	log := scrapemate.GetLoggerFromContext(ctx)
 
-	doc, ok := resp.Document.(*goquery.Document)
-	if !ok {
-		return nil, nil, fmt.Errorf("could not convert to goquery document")
-	}
-
 	var next []scrapemate.IJob
 
+	// Check if this is a single place redirect
 	if strings.Contains(resp.URL, "/maps/place/") {
 		jopts := []PlaceJobOptions{}
 		if j.ExitMonitor != nil {
@@ -142,7 +143,35 @@ func (j *GmapJob) Process(ctx context.Context, resp *scrapemate.Response) (any, 
 		placeJob := NewPlaceJob(j.ID, j.LangCode, resp.URL, j.ExtractEmail, j.ExtractExtraReviews, jopts...)
 
 		next = append(next, placeJob)
+	} else if string(resp.Body) == "progressive_extraction_completed" {
+		// Use progressively extracted URLs from BrowserActions
+		j.urlsMutex.Lock()
+		urls := make([]string, len(j.extractedURLs))
+		copy(urls, j.extractedURLs)
+		j.urlsMutex.Unlock()
+
+		for _, href := range urls {
+			jopts := []PlaceJobOptions{}
+			if j.ExitMonitor != nil {
+				jopts = append(jopts, WithPlaceJobExitMonitor(j.ExitMonitor))
+			}
+			if j.FilterByRadius {
+				jopts = append(jopts, WithRadiusFilter(j.CenterLat, j.CenterLon, j.RadiusMeters))
+			}
+
+			nextJob := NewPlaceJob(j.ID, j.LangCode, href, j.ExtractEmail, j.ExtractExtraReviews, jopts...)
+
+			if j.Deduper == nil || j.Deduper.AddIfNotExists(ctx, href) {
+				next = append(next, nextJob)
+			}
+		}
 	} else {
+		// Fallback: parse HTML document (for backward compatibility)
+		doc, ok := resp.Document.(*goquery.Document)
+		if !ok {
+			return nil, nil, fmt.Errorf("could not convert to goquery document")
+		}
+
 		doc.Find(`div[role=feed] div[jsaction]>a`).Each(func(_ int, s *goquery.Selection) {
 			if href := s.AttrOr("href", ""); href != "" {
 				jopts := []PlaceJobOptions{}
@@ -250,20 +279,60 @@ func (j *GmapJob) BrowserActions(ctx context.Context, page playwright.Page) scra
 
 	scrollSelector := `div[role='feed']`
 
-	_, err = scroll(ctx, page, j.MaxDepth, scrollSelector)
+	log := scrapemate.GetLoggerFromContext(ctx)
+
+	// Create callback to extract places progressively during scrolling
+	extractCallback := func(page playwright.Page, depth int) (int, error) {
+		body, err := page.Content()
+		if err != nil {
+			return 0, err
+		}
+
+		doc, err := goquery.NewDocumentFromReader(strings.NewReader(body))
+		if err != nil {
+			return 0, err
+		}
+
+		// Track URLs we've seen before this iteration
+		seenBefore := make(map[string]bool)
+		j.urlsMutex.Lock()
+		for _, u := range j.extractedURLs {
+			seenBefore[u] = true
+		}
+		j.urlsMutex.Unlock()
+
+		newURLs := []string{}
+
+		// Extract place URLs from current page state
+		doc.Find(`div[role=feed] div[jsaction]>a`).Each(func(_ int, s *goquery.Selection) {
+			if href := s.AttrOr("href", ""); href != "" {
+				if !seenBefore[href] {
+					newURLs = append(newURLs, href)
+				}
+			}
+		})
+
+		if len(newURLs) > 0 {
+			j.urlsMutex.Lock()
+			j.extractedURLs = append(j.extractedURLs, newURLs...)
+			j.urlsMutex.Unlock()
+
+			log.Info(fmt.Sprintf("Depth %d: found %d new places (%d total)", depth, len(newURLs), len(j.extractedURLs)))
+		}
+
+		return len(newURLs), nil
+	}
+
+	_, err = scroll(ctx, page, j.MaxDepth, scrollSelector, extractCallback)
 	if err != nil {
 		resp.Error = err
 
 		return resp
 	}
 
-	body, err := page.Content()
-	if err != nil {
-		resp.Error = err
-		return resp
-	}
-
-	resp.Body = []byte(body)
+	// Store the extracted URLs in the response body as a marker
+	// Process will use j.extractedURLs directly instead of parsing HTML
+	resp.Body = []byte("progressive_extraction_completed")
 
 	return resp
 }
@@ -307,10 +376,15 @@ func clickRejectCookiesIfRequired(page playwright.Page) error {
 	return el.Click()
 }
 
+// scrollCallback is called after each scroll iteration with the current page content
+// It should return the number of new items found
+type scrollCallback func(page playwright.Page, depth int) (int, error)
+
 func scroll(ctx context.Context,
 	page playwright.Page,
 	maxDepth int,
 	scrollSelector string,
+	callback scrollCallback,
 ) (int, error) {
 	expr := `async () => {
 		const el = document.querySelector("` + scrollSelector + `");
@@ -371,19 +445,35 @@ func scroll(ctx context.Context,
 			return scrollAttempts, fmt.Errorf("scrollHeight is not an int: %v", scrollHeight)
 		}
 
+		// Call the callback to extract places at this depth
+		newItemsFound := 0
+		if callback != nil {
+			newItems, err := callback(page, i+1)
+			if err != nil {
+				return scrollAttempts, err
+			}
+			newItemsFound = newItems
+		}
+
 		// Check if height has changed (new content loaded)
 		if height == currentScrollHeight {
-			stableCount++
+			// Height didn't change, but if we found new items, don't increment stable count
+			if newItemsFound == 0 {
+				stableCount++
 
-			// Only exit early if we've seen stable height multiple times
-			// This ensures we don't exit prematurely due to slow network
-			if stableCount >= stableThreshold {
-				// Content appears fully loaded - no more items
-				break
+				// Only exit early if we've seen stable height multiple times
+				// This ensures we don't exit prematurely due to slow network
+				if stableCount >= stableThreshold {
+					// Content appears fully loaded - no more items
+					break
+				}
+
+				// Content might still be loading, continue with increased wait time
+				waitTime += float64(retryWaitIncrease)
+			} else {
+				// Height stable but new items found - keep going
+				stableCount = 0
 			}
-
-			// Content might still be loading, continue with increased wait time
-			waitTime += float64(retryWaitIncrease)
 		} else {
 			// New content loaded - reset stable count
 			stableCount = 0

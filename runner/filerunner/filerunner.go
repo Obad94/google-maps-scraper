@@ -213,7 +213,26 @@ func (r *fileRunner) setApp() error {
 	opts := []func(*scrapemateapp.Config) error{
 		// scrapemateapp.WithCache("leveldb", "cache"),
 		scrapemateapp.WithConcurrency(r.cfg.Concurrency),
-		scrapemateapp.WithExitOnInactivity(r.cfg.ExitOnInactivityDuration),
+	}
+
+	// Only use ExitOnInactivity if user explicitly sets it
+	// The exiter package handles completion detection automatically
+	// ExitOnInactivity is problematic during long BrowserActions (scrolling)
+	// because scrapemate measures inactivity from first job completion,
+	// but during scrolling no jobs complete yet
+	if r.cfg.ExitOnInactivityDuration > 0 {
+		// Calculate minimum safe timeout based on depth
+		// Each scroll iteration can take 2-4 seconds, so we need at least (depth × 4s) + 2 minutes buffer
+		minInactivityTimeout := time.Duration(r.cfg.MaxDepth*4)*time.Second + 2*time.Minute
+		
+		exitOnInactivity := r.cfg.ExitOnInactivityDuration
+		if exitOnInactivity < minInactivityTimeout {
+			fmt.Fprintf(os.Stderr, "Warning: -exit-on-inactivity %v is too short for depth %d. Using minimum %v\n",
+				exitOnInactivity, r.cfg.MaxDepth, minInactivityTimeout)
+			exitOnInactivity = minInactivityTimeout
+		}
+		
+		opts = append(opts, scrapemateapp.WithExitOnInactivity(exitOnInactivity))
 	}
 
 	if len(r.cfg.Proxies) > 0 {
