@@ -200,24 +200,39 @@ func (j *NearbySearchJob) Process(ctx context.Context, resp *scrapemate.Response
 func (j *NearbySearchJob) BrowserActions(ctx context.Context, page playwright.Page) scrapemate.Response {
 	var resp scrapemate.Response
 
-	// Build the nearby search URL directly
-	// Format: https://www.google.com/maps/search/CATEGORY/@LAT,LON,DISTANCE
-	// Example: https://www.google.com/maps/search/Restaurants/@24.93584,67.13801,2000m
+	// Build the TRUE nearby search URL (proximity-based, not relevance-based)
+	// Format: https://www.google.com/maps/search/CATEGORY/@LAT,LON,RADIUSm/data=!3m2!1e3!4b1!4m7!2m6!3m5!...
+	// The key is the data parameter with !1e3 which enables proximity sorting
 
 	distanceMeters := int(j.RadiusMeters)
 	if distanceMeters <= 0 {
 		distanceMeters = 2000 // Default 2km
 	}
 
-	// Construct the simple nearby search URL
-	// Google Maps will automatically redirect to the proper format with /data= parameter
-	// Simple format: https://www.google.com/maps/search/Restaurants/@24.935840,67.138010,5000m
-	// Google redirects to: https://www.google.com/maps/search/Restaurants/@24.93584,67.13801,6318m/data=!3m1!1e3?entry=ttu...
-	searchURL := fmt.Sprintf("https://www.google.com/maps/search/%s/@%f,%f,%dm",
-		url.QueryEscape(j.Category),
+	// Construct the TRUE nearby search URL with proximity sorting (!1e3)
+	// This mimics right-click "Search Nearby" behavior which shows CLOSEST places first
+	// Format breakdown:
+	// - @LAT,LON,RADIUSm = center point and radius
+	// - !3m2!1e3!4b1 = enables nearby/proximity mode (1e3 is key)
+	// - !4m7!2m6!3m5!1sCATEGORY!2sLAT,LON!4m2!1dLON!2dLAT = search parameters
+	encodedCategory := url.QueryEscape(j.Category)
+	
+	// Build the data parameter for true nearby search
+	// !1e3 is crucial - it enables proximity-based sorting instead of relevance
+	dataParam := fmt.Sprintf("!3m2!1e3!4b1!4m7!2m6!3m5!1s%s!2s%.4f,+%.4f!4m2!1d%.7f!2d%.7f",
+		encodedCategory,
+		j.Latitude,
+		j.Longitude,
+		j.Longitude,
+		j.Latitude,
+	)
+	
+	searchURL := fmt.Sprintf("https://www.google.com/maps/search/%s/@%f,%f,%dm/data=%s",
+		encodedCategory,
 		j.Latitude,
 		j.Longitude,
 		distanceMeters,
+		dataParam,
 	)
 
 	// Add language parameter

@@ -770,6 +770,8 @@ Then run with your existing command:
 docker run -v ${PWD}\gmapsdata:/gmapsdata -p 8080:8080 google-maps-scraper -data-folder /gmapsdata
 
 
-export MSYS_NO_PATHCONV=1
+Powershell:
+docker run --rm --shm-size=1g -v ${PWD}\gmapsdata:/gmapsdata -p 8080:8080 google-maps-scraper -nearby-mode -geo "24.93584,67.13801" -input /gmapsdata/nearby-categories.txt -results /gmapsdata/nearby_results_final.csv -radius 500 -depth 20 -email -exit-on-inactivity 1m
 
-docker run --rm --shm-size=1g -v "${PWD}/gmapsdata:/gmapsdata" -p 8080:8080 google-maps-scraper -nearby-mode -geo "24.93584,67.13801" -input /gmapsdata/nearby-categories.txt -results /gmapsdata/places_output.csv -radius 500 -depth 10 -email -exit-on-inactivity 10m
+Git Bash:
+MSYS_NO_PATHCONV=1 docker run --rm --shm-size=1g -v "${PWD}/gmapsdata:/gmapsdata" -p 8080:8080 google-maps-scraper -nearby-mode -geo "24.93584,67.13801" -input /gmapsdata/nearby-categories.txt -results /gmapsdata/nearby_results_final.csv -radius 500 -depth 20 -email -exit-on-inactivity 1m
