@@ -15,6 +15,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gosom/scrapemate v0.9.6
 	github.com/jackc/pgx/v5 v5.7.4
+	github.com/joho/godotenv v1.5.1
 	github.com/mattn/go-runewidth v0.0.16
 	github.com/mcnijman/go-emailaddress v1.1.1
 	github.com/playwright-community/playwright-go v0.5200.0

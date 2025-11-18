@@ -36,6 +36,9 @@ type GmapJob struct {
 	CenterLon      float64
 	RadiusMeters   float64
 
+	// Google Places API enrichment
+	GoogleMapsAPIKey string
+
 	// Progressive extraction - stores URLs found during scrolling
 	extractedURLs []string
 	urlsMutex     sync.Mutex
@@ -116,6 +119,12 @@ func WithRadiusFiltering(lat, lon, radiusMeters float64) GmapJobOptions {
 	}
 }
 
+func WithGmapGoogleMapsAPIKey(apiKey string) GmapJobOptions {
+	return func(j *GmapJob) {
+		j.GoogleMapsAPIKey = apiKey
+	}
+}
+
 func (j *GmapJob) UseInResults() bool {
 	return false
 }
@@ -139,6 +148,9 @@ func (j *GmapJob) Process(ctx context.Context, resp *scrapemate.Response) (any, 
 		if j.FilterByRadius {
 			jopts = append(jopts, WithRadiusFilter(j.CenterLat, j.CenterLon, j.RadiusMeters))
 		}
+		if j.GoogleMapsAPIKey != "" {
+			jopts = append(jopts, WithGoogleMapsAPIKey(j.GoogleMapsAPIKey))
+		}
 
 		placeJob := NewPlaceJob(j.ID, j.LangCode, resp.URL, j.ExtractEmail, j.ExtractExtraReviews, jopts...)
 
@@ -157,6 +169,9 @@ func (j *GmapJob) Process(ctx context.Context, resp *scrapemate.Response) (any, 
 			}
 			if j.FilterByRadius {
 				jopts = append(jopts, WithRadiusFilter(j.CenterLat, j.CenterLon, j.RadiusMeters))
+			}
+			if j.GoogleMapsAPIKey != "" {
+				jopts = append(jopts, WithGoogleMapsAPIKey(j.GoogleMapsAPIKey))
 			}
 
 			nextJob := NewPlaceJob(j.ID, j.LangCode, href, j.ExtractEmail, j.ExtractExtraReviews, jopts...)
@@ -180,6 +195,9 @@ func (j *GmapJob) Process(ctx context.Context, resp *scrapemate.Response) (any, 
 				}
 				if j.FilterByRadius {
 					jopts = append(jopts, WithRadiusFilter(j.CenterLat, j.CenterLon, j.RadiusMeters))
+				}
+				if j.GoogleMapsAPIKey != "" {
+					jopts = append(jopts, WithGoogleMapsAPIKey(j.GoogleMapsAPIKey))
 				}
 
 				nextJob := NewPlaceJob(j.ID, j.LangCode, href, j.ExtractEmail, j.ExtractExtraReviews, jopts...)

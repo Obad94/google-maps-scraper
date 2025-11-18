@@ -40,6 +40,9 @@ type NearbySearchJob struct {
 	// Zoom for URL - for setting the map view distance (separate from filtering)
 	ZoomMeters float64
 
+	// Google Places API enrichment
+	GoogleMapsAPIKey string
+
 	// Progressive extraction - stores URLs found during scrolling
 	extractedURLs []string
 	urlsMutex     sync.Mutex
@@ -135,6 +138,12 @@ func WithNearbyZoom(zoomMeters float64) NearbySearchJobOptions {
 	}
 }
 
+func WithNearbyGoogleMapsAPIKey(apiKey string) NearbySearchJobOptions {
+	return func(j *NearbySearchJob) {
+		j.GoogleMapsAPIKey = apiKey
+	}
+}
+
 func (j *NearbySearchJob) UseInResults() bool {
 	return false
 }
@@ -158,6 +167,10 @@ func (j *NearbySearchJob) Process(ctx context.Context, resp *scrapemate.Response
 
 	if j.FilterByRadius {
 		jopts = append(jopts, WithRadiusFilter(j.Latitude, j.Longitude, j.RadiusMeters))
+	}
+
+	if j.GoogleMapsAPIKey != "" {
+		jopts = append(jopts, WithGoogleMapsAPIKey(j.GoogleMapsAPIKey))
 	}
 
 	// Check if we used progressive extraction

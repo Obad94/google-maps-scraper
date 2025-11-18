@@ -87,6 +87,7 @@ func (r *fileRunner) Run(ctx context.Context) (err error) {
 			dedup,
 			exitMonitor,
 			r.cfg.ExtraReviews,
+			r.cfg.GoogleMapsAPIKey,
 		)
 		if err != nil {
 			return err
@@ -104,6 +105,7 @@ func (r *fileRunner) Run(ctx context.Context) (err error) {
 			dedup,
 			exitMonitor,
 			r.cfg.ExtraReviews,
+			r.cfg.GoogleMapsAPIKey,
 		)
 		if err != nil {
 			return err

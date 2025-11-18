@@ -9,6 +9,8 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/joho/godotenv"
+
 	"github.com/gosom/google-maps-scraper/runner"
 	"github.com/gosom/google-maps-scraper/runner/databaserunner"
 	"github.com/gosom/google-maps-scraper/runner/filerunner"
@@ -21,6 +23,9 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	runner.Banner()
+
+	// Load .env file if it exists (ignore errors if file doesn't exist)
+	_ = godotenv.Load()
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)

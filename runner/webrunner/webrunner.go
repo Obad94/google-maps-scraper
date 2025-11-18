@@ -322,6 +322,7 @@ func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) error {
 		dedup,
 		exitMonitor,
 		w.cfg.ExtraReviews,
+		w.cfg.GoogleMapsAPIKey,
 	)
 	if err != nil {
 		job.Status = web.StatusFailed

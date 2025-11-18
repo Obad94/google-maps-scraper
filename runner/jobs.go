@@ -28,6 +28,7 @@ func CreateNearbySearchJobs(
 	dedup deduper.Deduper,
 	exitMonitor exiter.Exiter,
 	extraReviews bool,
+	googleMapsAPIKey string,
 ) (jobs []scrapemate.IJob, err error) {
 	if geoCoordinates == "" {
 		return nil, fmt.Errorf("geo coordinates are required for nearby search mode")
@@ -93,6 +94,10 @@ func CreateNearbySearchJobs(
 			opts = append(opts, gmaps.WithNearbyZoom(zoomForURL))
 		}
 
+		if googleMapsAPIKey != "" {
+			opts = append(opts, gmaps.WithNearbyGoogleMapsAPIKey(googleMapsAPIKey))
+		}
+
 		job := gmaps.NewNearbySearchJob(id, langCode, lat, lon, category, maxDepth, email, opts...)
 		jobs = append(jobs, job)
 	}
@@ -112,6 +117,7 @@ func CreateSeedJobs(
 	dedup deduper.Deduper,
 	exitMonitor exiter.Exiter,
 	extraReviews bool,
+	googleMapsAPIKey string,
 ) (jobs []scrapemate.IJob, err error) {
 	var lat, lon float64
 
@@ -185,6 +191,10 @@ func CreateSeedJobs(
 
 			if extraReviews {
 				opts = append(opts, gmaps.WithExtraReviews())
+			}
+
+			if googleMapsAPIKey != "" {
+				opts = append(opts, gmaps.WithGmapGoogleMapsAPIKey(googleMapsAPIKey))
 			}
 
 			// Add radius filtering if coordinates and radius are provided

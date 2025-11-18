@@ -81,6 +81,7 @@ type Config struct {
 	Addr                     string
 	DisablePageReuse         bool
 	ExtraReviews             bool
+	GoogleMapsAPIKey         string
 }
 
 func ParseConfig() *Config {
@@ -142,6 +143,10 @@ func ParseConfig() *Config {
 
 	if cfg.AwsRegion == "" {
 		cfg.AwsRegion = os.Getenv("MY_AWS_REGION")
+	}
+
+	if cfg.GoogleMapsAPIKey == "" {
+		cfg.GoogleMapsAPIKey = os.Getenv("GOOGLE_MAPS_API_KEY")
 	}
 
 	if cfg.AwsLambdaInvoker && cfg.FunctionName == "" {

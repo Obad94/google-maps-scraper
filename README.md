@@ -810,3 +810,17 @@ Git Bash:
 MSYS_NO_PATHCONV=1 docker run --rm --shm-size=1g -v "${PWD}/gmapsdata:/gmapsdata" -p 8080:8080 google-maps-scraper -nearby-mode -geo "24.93584,67.13801" -input /gmapsdata/nearby-categories.txt -results /gmapsdata/nearby_results_final.csv -zoom-for-url 500 -radius 1000 -depth 20 -email -exit-on-inactivity 10m
 
 MSYS_NO_PATHCONV=1 docker run --rm --shm-size=1g -v "${PWD}/gmapsdata:/gmapsdata" -p 8080:8080 google-maps-scraper -nearby-mode -geo "21.030625,105.819332" -input /gmapsdata/nearby-categories.txt -results /gmapsdata/nearby_results_final.csv -depth 17 -email -zoom-for-url 51
+
+
+MSYS_NO_PATHCONV=1 docker run --rm --shm-size=1g \
+  -v "${PWD}/gmapsdata:/gmapsdata" \
+  -v "${PWD}/.env:/.env" \
+  -p 8080:8080 \
+  google-maps-scraper \
+  -nearby-mode \
+  -geo "21.030625,105.819332" \
+  -input /gmapsdata/nearby-categories.txt \
+  -results /gmapsdata/nearby_results_final.csv \
+  -depth 17 \
+  -email \
+  -zoom-for-url 51

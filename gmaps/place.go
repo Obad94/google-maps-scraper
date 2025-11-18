@@ -29,6 +29,9 @@ type PlaceJob struct {
 	CenterLat      float64
 	CenterLon      float64
 	RadiusMeters   float64
+
+	// Google Places API enrichment
+	GoogleMapsAPIKey string
 }
 
 func NewPlaceJob(parentID, langCode, u string, extractEmail, extraExtraReviews bool, opts ...PlaceJobOptions) *PlaceJob {
@@ -75,6 +78,12 @@ func WithRadiusFilter(lat, lon, radiusMeters float64) PlaceJobOptions {
 	}
 }
 
+func WithGoogleMapsAPIKey(apiKey string) PlaceJobOptions {
+	return func(j *PlaceJob) {
+		j.GoogleMapsAPIKey = apiKey
+	}
+}
+
 func (j *PlaceJob) Process(_ context.Context, resp *scrapemate.Response) (any, []scrapemate.IJob, error) {
 	defer func() {
 		resp.Document = nil
@@ -96,6 +105,14 @@ func (j *PlaceJob) Process(_ context.Context, resp *scrapemate.Response) (any, [
 
 	if entry.Link == "" {
 		entry.Link = j.GetURL()
+	}
+
+	// Enrich with Google Places API if API key is provided
+	if j.GoogleMapsAPIKey != "" {
+		if err := EnrichEntryWithPlaceID(&entry, j.GoogleMapsAPIKey); err != nil {
+			// Log error but don't fail - continue with the entry
+			fmt.Printf("Warning: Failed to enrich entry with Place ID: %v\n", err)
+		}
 	}
 
 	// Filter by radius if configured
