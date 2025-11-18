@@ -251,7 +251,7 @@ func (j *NearbySearchJob) BrowserActions(ctx context.Context, page playwright.Pa
 	
 	// Build the data parameter for true nearby search
 	// !1e3 is crucial - it enables proximity-based sorting instead of relevance
-	dataParam := fmt.Sprintf("!3m1!1e3!4b1!4m7!2m6!3m5!1s%s!2s%.4f,+%.4f!4m2!1d%.7f!2d%.7f",
+	dataParam := fmt.Sprintf("!3m1!1e3!4m7!2m6!3m5!1s%s!2s%.7f,+%.7f!4m2!1d%.7f!2d%.7f",
 		encodedCategory,
 		j.Latitude,
 		j.Longitude,
