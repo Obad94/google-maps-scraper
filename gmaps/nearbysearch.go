@@ -301,10 +301,7 @@ func (j *NearbySearchJob) BrowserActions(ctx context.Context, page playwright.Pa
 	}
 
 	// Handle cookie consent
-	if err = clickRejectCookiesIfRequired(page); err != nil {
-		resp.Error = fmt.Errorf("failed to handle cookies: %w", err)
-		return resp
-	}
+	clickRejectCookiesIfRequired(page)
 
 	// Wait for page to stabilize and dynamic content to load
 	// Nearby search loads places dynamically, so wait longer
