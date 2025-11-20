@@ -161,6 +161,8 @@ func (e *Entry) CsvHeaders() []string {
 	return []string{
 		"input_id",
 		"link",
+		"place_id",
+		"place_id_url",
 		"title",
 		"category",
 		"address",
@@ -192,8 +194,6 @@ func (e *Entry) CsvHeaders() []string {
 		"user_reviews",
 		"user_reviews_extended",
 		"emails",
-		"place_id",
-		"place_id_url",
 	}
 }
 
@@ -201,6 +201,8 @@ func (e *Entry) CsvRow() []string {
 	return []string{
 		e.ID,
 		e.Link,
+		e.PlaceID,
+		e.PlaceIDURL,
 		e.Title,
 		e.Category,
 		e.Address,
@@ -232,8 +234,6 @@ func (e *Entry) CsvRow() []string {
 		stringify(e.UserReviews),
 		stringify(e.UserReviewsExtended),
 		stringSliceToString(e.Emails),
-		e.PlaceID,
-		e.PlaceIDURL,
 	}
 }
 

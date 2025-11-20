@@ -10,7 +10,9 @@
       "Bash(\"c:\\Users\\Obad\\Desktop\\google-maps-scraper\\gmapsdata\\test_normal.txt\")",
       "Bash(go get:*)",
       "Bash(/c/Program Files/Go/bin/go.exe get:*)",
-      "Bash(where:*)"
+      "Bash(where:*)",
+      "Bash(git remote:*)",
+      "Bash(git push:*)"
     ],
     "deny": [],
     "ask": []
