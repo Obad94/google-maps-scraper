@@ -11,10 +11,11 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/google/uuid"
-	"github.com/gosom/google-maps-scraper/deduper"
-	"github.com/gosom/google-maps-scraper/exiter"
 	"github.com/gosom/scrapemate"
 	"github.com/playwright-community/playwright-go"
+
+	"github.com/gosom/google-maps-scraper/deduper"
+	"github.com/gosom/google-maps-scraper/exiter"
 )
 
 type GmapJobOptions func(*GmapJob)
@@ -67,7 +68,7 @@ func NewGmapJob(
 	if geoCoordinates != "" && zoom > 0 {
 		mapURL = fmt.Sprintf("https://www.google.com/maps/search/%s/@%s,%dz", query, strings.ReplaceAll(geoCoordinates, " ", ""), zoom)
 	} else {
-		//Warning: geo and zoom MUST be both set or not
+		// Warning: geo and zoom MUST be both set or not
 		mapURL = fmt.Sprintf("https://www.google.com/maps/search/%s", query)
 	}
 
@@ -225,18 +226,13 @@ func (j *GmapJob) BrowserActions(ctx context.Context, page playwright.Page) scra
 	pageResponse, err := page.Goto(j.GetFullURL(), playwright.PageGotoOptions{
 		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
 	})
-
 	if err != nil {
 		resp.Error = err
 
 		return resp
 	}
 
-	if err = clickRejectCookiesIfRequired(page); err != nil {
-		resp.Error = err
-
-		return resp
-	}
+	clickRejectCookiesIfRequired(page)
 
 	const defaultTimeout = 5000
 
@@ -244,7 +240,6 @@ func (j *GmapJob) BrowserActions(ctx context.Context, page playwright.Page) scra
 		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
 		Timeout:   playwright.Float(defaultTimeout),
 	})
-
 	if err != nil {
 		resp.Error = err
 
@@ -371,27 +366,23 @@ func waitUntilURLContains(ctx context.Context, page playwright.Page, s string) b
 	}
 }
 
-func clickRejectCookiesIfRequired(page playwright.Page) error {
-	// click the cookie reject button if exists
-	sel := `form[action="https://consent.google.com/save"]:first-of-type button:first-of-type`
+func clickRejectCookiesIfRequired(page playwright.Page) {
+	sel := `form[action="https://consent.google.com/save"] input[type="submit"]`
 
-	const timeout = 500
+	locator := page.Locator(sel)
 
-	//nolint:staticcheck // TODO replace with the new playwright API
-	el, err := page.WaitForSelector(sel, playwright.PageWaitForSelectorOptions{
-		Timeout: playwright.Float(timeout),
-	})
-
+	count, err := locator.Count()
 	if err != nil {
-		return nil
+		return
 	}
 
-	if el == nil {
-		return nil
+	if count == 0 {
+		return
 	}
 
-	//nolint:staticcheck // TODO replace with the new playwright API
-	return el.Click()
+	_ = locator.First().Click(playwright.LocatorClickOptions{
+		Timeout: playwright.Float(2000),
+	})
 }
 
 // scrollCallback is called after each scroll iteration with the current page content

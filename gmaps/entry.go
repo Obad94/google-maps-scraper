@@ -954,6 +954,24 @@ func decodeURL(url string) (string, error) {
 	return unquoted, nil
 }
 
+func extractActualURL(googleURL string) string {
+	if googleURL == "" || !strings.HasPrefix(googleURL, "/url?q=") {
+		return googleURL
+	}
+
+	parsedURL, err := url.Parse(googleURL)
+	if err != nil {
+		return googleURL
+	}
+
+	actualURL := parsedURL.Query().Get("q")
+	if actualURL == "" {
+		return googleURL
+	}
+
+	return actualURL
+}
+
 type EntryWithDistance struct {
 	Entry    *Entry
 	Distance float64
