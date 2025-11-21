@@ -88,7 +88,9 @@ func (e *exiter) isDone() bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	if e.seedCompleted != e.seedCount {
+	// Use >= for seedCompleted because hybrid mode creates additional jobs
+	// that also increment seedCompleted (nearby jobs spawned from hybrid job)
+	if e.seedCompleted < e.seedCount {
 		return false
 	}
 

@@ -286,15 +286,16 @@ func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) error {
 		return jobErr
 	}
 
-	mate, err := w.setupMate(ctx, outfile, job)
-	if err != nil {
-		job.Status = web.StatusFailed
-		jobErr = err
-		return err
+	var mate *scrapemateapp.ScrapemateApp
+	if !job.Data.HybridMode { // hybrid builds its own app internally
+		mate, err = w.setupMate(ctx, outfile, job)
+		if err != nil {
+			job.Status = web.StatusFailed
+			jobErr = err
+			return err
+		}
+		defer mate.Close()
 	}
-
-	// Ensure resources are released on any exit
-	defer mate.Close()
 
 	var coords string
 	if job.Data.Lat != "" && job.Data.Lon != "" {
@@ -306,7 +307,27 @@ func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) error {
 
 	var seedJobs []scrapemate.IJob
 
-	if job.Data.NearbyMode {
+	if job.Data.HybridMode {
+		// Execute new hybrid workflow directly (fast API -> nearby browser)
+		writers := []scrapemate.ResultWriter{csvwriter.NewCsvWriter(csv.NewWriter(outfile))}
+		// Build a temporary config copy with job-specific parameters (lat/lon/zoom/radius/depth/email/lang)
+		geo := coords // already constructed from job.Data.Lat/Lon above
+		tmpCfg := *w.cfg
+		tmpCfg.GeoCoordinates = geo
+		tmpCfg.ZoomLevel = job.Data.Zoom
+		tmpCfg.Radius = float64(job.Data.Radius)
+		tmpCfg.Email = job.Data.Email
+		tmpCfg.MaxDepth = job.Data.Depth
+		tmpCfg.LangCode = job.Data.Lang
+		// Concurrency, proxies etc inherited from base config
+		if err := runner.RunHybridWeb(ctx, &tmpCfg, job.Data.Keywords, writers); err != nil {
+			job.Status = web.StatusFailed
+			jobErr = err
+			return err
+		}
+		job.Status = web.StatusOK
+		return nil // Hybrid completed; normal seedJobs path skipped
+	} else if job.Data.NearbyMode {
 		// Nearby mode: use CreateNearbySearchJobs
 		seedJobs, err = runner.CreateNearbySearchJobs(
 			job.Data.Lang,
@@ -467,13 +488,21 @@ func (w *webrunner) setupMate(_ context.Context, writer io.Writer, job *web.Job)
 		log.Printf("job %s: ExitOnInactivity not set by user, relying on exiter package for completion detection", job.ID)
 	}
 
-	if !job.Data.FastMode {
-		opts = append(opts,
-			scrapemateapp.WithJS(scrapemateapp.DisableImages()),
-		)
-	} else {
+	if job.Data.HybridMode {
+		// Hybrid mode: needs stealth for fast mode API calls AND JS for nearby browser automation
 		opts = append(opts,
 			scrapemateapp.WithStealth("firefox"),
+			scrapemateapp.WithJS(scrapemateapp.DisableImages()),
+		)
+	} else if job.Data.FastMode {
+		// Fast mode: only uses stealth (HTTP requests, no browser)
+		opts = append(opts,
+			scrapemateapp.WithStealth("firefox"),
+		)
+	} else {
+		// Regular and nearby modes: use browser automation
+		opts = append(opts,
+			scrapemateapp.WithJS(scrapemateapp.DisableImages()),
 		)
 	}
 

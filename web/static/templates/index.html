@@ -91,7 +91,7 @@
                                 <label>Search Mode:</label>
                                 <div class="mode-selector">
                                     <label class="mode-option">
-                                        <input type="radio" name="mode" value="regular" {{if not .FastMode}}{{if not .NearbyMode}}checked{{end}}{{end}}>
+                                        <input type="radio" name="mode" value="regular" {{if not .FastMode}}{{if not .NearbyMode}}{{if not .HybridMode}}checked{{end}}{{end}}{{end}}>
                                         <span>Regular Mode</span>
                                     </label>
                                     <label class="mode-option">
@@ -102,11 +102,16 @@
                                         <input type="radio" name="mode" value="nearby" {{if .NearbyMode}}checked{{end}}>
                                         <span>Nearby Mode</span>
                                     </label>
+                                    <label class="mode-option">
+                                        <input type="radio" name="mode" value="hybrid" {{if .HybridMode}}checked{{end}}>
+                                        <span>Hybrid Mode</span>
+                                    </label>
                                 </div>
                                 <small class="text-muted">
                                     <strong>Regular:</strong> Standard search |
                                     <strong>Fast:</strong> HTTP-based (no browser) |
-                                    <strong>Nearby:</strong> Proximity search (requires lat/lon, zoom 51m+)
+                                    <strong>Nearby:</strong> Proximity search (requires lat/lon, zoom 51m+) |
+                                    <strong>Hybrid:</strong> Fast + Nearby (requires lat/lon)
                                 </small>
                             </div>
                             <div class="form-group">

@@ -69,6 +69,7 @@ type JobData struct {
 	Lon                string        `json:"lon"`
 	FastMode           bool          `json:"fast_mode"`
 	NearbyMode         bool          `json:"nearby_mode"`
+	HybridMode         bool          `json:"hybrid_mode"`
 	Radius             int           `json:"radius"`
 	Depth              int           `json:"depth"`
 	Email              bool          `json:"email"`
@@ -90,6 +91,23 @@ func (d *JobData) Validate() error {
 		return errors.New("invalid lang")
 	}
 
+	// Count active modes
+	modeCount := 0
+	if d.FastMode {
+		modeCount++
+	}
+	if d.NearbyMode {
+		modeCount++
+	}
+	if d.HybridMode {
+		modeCount++
+	}
+
+	// Validate mode exclusivity
+	if modeCount > 1 {
+		return errors.New("cannot enable multiple modes (fast, nearby, hybrid) at the same time")
+	}
+
 	// Validate zoom based on mode
 	if d.NearbyMode {
 		// In nearby mode, zoom is interpreted as meters (must be 51+)
@@ -97,9 +115,9 @@ func (d *JobData) Validate() error {
 			return errors.New("zoom must be 51 or greater (meters) in nearby mode")
 		}
 	} else {
-		// In regular mode, zoom is a level (0-21)
+		// In regular, fast, and hybrid modes, zoom is a level (0-21)
 		if d.Zoom < 0 || d.Zoom > 21 {
-			return errors.New("zoom must be between 0 and 21 in regular mode")
+			return errors.New("zoom must be between 0 and 21 in regular/fast/hybrid mode")
 		}
 	}
 
@@ -112,16 +130,16 @@ func (d *JobData) Validate() error {
 	}
 
 	// Validate mode-specific requirements
-	if d.FastMode && d.NearbyMode {
-		return errors.New("cannot enable both fast mode and nearby mode")
-	}
-
 	if d.FastMode && (d.Lat == "" || d.Lon == "") {
 		return errors.New("missing geo coordinates for fast mode")
 	}
 
 	if d.NearbyMode && (d.Lat == "" || d.Lon == "") {
 		return errors.New("missing geo coordinates for nearby mode")
+	}
+
+	if d.HybridMode && (d.Lat == "" || d.Lon == "") {
+		return errors.New("missing geo coordinates for hybrid mode")
 	}
 
 	return nil

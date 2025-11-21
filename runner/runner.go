@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"runtime"
 	"strconv"
@@ -78,6 +79,7 @@ type Config struct {
 	AwsLambdaChunkSize       int
 	FastMode                 bool
 	NearbyMode               bool
+	HybridMode               bool
 	Radius                   float64
 	Addr                     string
 	DisablePageReuse         bool
@@ -137,6 +139,55 @@ func parseZoomLevel(zoomStr string) (zoomLevel int, zoomMeters int, err error) {
 	}
 }
 
+// ConvertZoomToMeters converts a Google Maps zoom level (1-21) to approximate meters
+// Based on Web Mercator projection formula: meters_per_pixel = 156543.03392 * cos(latitude) / 2^zoom
+// Where 156543.03392 = Earth's circumference at equator (40,075,016.686m) / 256 pixels (tile size at zoom 0)
+//
+// Viewport assumptions:
+// - Google Maps search typically uses ~800-1024px effective width for search radius
+// - We use 800px as a conservative estimate for search area calculation
+//
+// Latitude effect:
+// - At equator (0°): cos(0) = 1.0 → Full scale
+// - At 40°N (NYC): cos(40) = 0.766 → 23% smaller
+// - At 51°N (London): cos(51) = 0.629 → 37% smaller
+//
+// Example conversions (at equator, 800px viewport):
+// Zoom 21 → ~60m, Zoom 20 → ~120m, Zoom 19 → ~240m
+// Zoom 18 → ~480m, Zoom 17 → ~950m, Zoom 16 → ~1900m
+// Zoom 15 → ~3800m, Zoom 14 → ~7600m
+func ConvertZoomToMeters(zoomLevel int, latitude float64) int {
+	if zoomLevel < 1 || zoomLevel > 21 {
+		return 2000 // Default 2km
+	}
+
+	// Standard Web Mercator formula for meters per pixel
+	// 156543.03392 = Earth's circumference / 256 (tile size at zoom 0)
+	metersPerPixel := 156543.03392 * cosDegrees(latitude) / float64(uint(1)<<uint(zoomLevel))
+
+	// Use 800px as effective viewport width for search area
+	// This matches Google Maps' typical search behavior
+	const viewportWidth = 800.0
+	meters := int(metersPerPixel * viewportWidth)
+
+	// Clamp to sensible values for nearby search
+	// Minimum: 51m (required by nearby mode API)
+	// Maximum: 2000m (larger values cause Google Maps feed to not load properly)
+	if meters < 51 {
+		meters = 51
+	}
+	if meters > 2000 {
+		meters = 2000
+	}
+
+	return meters
+}
+
+// cosDegrees returns the cosine of an angle in degrees
+func cosDegrees(degrees float64) float64 {
+	return math.Cos(degrees * math.Pi / 180.0)
+}
+
 func ParseConfig() *Config {
 	cfg := Config{}
 
@@ -179,6 +230,7 @@ func ParseConfig() *Config {
 	flag.IntVar(&cfg.AwsLambdaChunkSize, "aws-lambda-chunk-size", 100, "AWS Lambda chunk size")
 	flag.BoolVar(&cfg.FastMode, "fast-mode", false, "fast mode (reduced data collection)")
 	flag.BoolVar(&cfg.NearbyMode, "nearby-mode", false, "nearby search mode (right-click search nearby simulation)")
+	flag.BoolVar(&cfg.HybridMode, "hybrid-mode", false, "hybrid mode: runs fast mode first, then nearby search on each result location")
 	flag.Float64Var(&cfg.Radius, "radius", 10000, "search radius in meters for filtering results. Default is 10000 meters")
 	flag.StringVar(&cfg.Addr, "addr", ":8080", "address to listen on for web server")
 	flag.BoolVar(&cfg.DisablePageReuse, "disable-page-reuse", false, "disable page reuse in playwright")

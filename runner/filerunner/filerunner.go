@@ -75,7 +75,10 @@ func (r *fileRunner) Run(ctx context.Context) (err error) {
 	dedup := deduper.New()
 	exitMonitor := exiter.New()
 
-	if r.cfg.NearbyMode {
+	if r.cfg.HybridMode {
+		// New hybrid workflow (fast API -> nearby browser) bypasses mixed-mode seed jobs
+		return runner.RunHybridFile(ctx, r.cfg, r.input, r.writers)
+	} else if r.cfg.NearbyMode {
 		seedJobs, err = runner.CreateNearbySearchJobs(
 			r.cfg.LangCode,
 			r.input,
@@ -244,7 +247,19 @@ func (r *fileRunner) setApp() error {
 		)
 	}
 
-	if !r.cfg.FastMode {
+	if r.cfg.HybridMode {
+		// Hybrid mode: uses stealth for fast mode API calls, but also needs browser for nearby search
+		opts = append(opts, scrapemateapp.WithStealth("firefox"))
+		// Also add JS for the nearby search phase which requires browser automation
+		if r.cfg.Debug {
+			opts = append(opts, scrapemateapp.WithJS(
+				scrapemateapp.Headfull(),
+				scrapemateapp.DisableImages(),
+			))
+		} else {
+			opts = append(opts, scrapemateapp.WithJS(scrapemateapp.DisableImages()))
+		}
+	} else if !r.cfg.FastMode {
 		if r.cfg.Debug {
 			opts = append(opts, scrapemateapp.WithJS(
 				scrapemateapp.Headfull(),

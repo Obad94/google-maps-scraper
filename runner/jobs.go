@@ -17,6 +17,115 @@ import (
 	"github.com/gosom/scrapemate"
 )
 
+func CreateHybridSearchJobs(
+	langCode string,
+	r io.Reader,
+	maxDepth int,
+	email bool,
+	geoCoordinates string,
+	zoom int,
+	radius float64,
+	dedup deduper.Deduper,
+	exitMonitor exiter.Exiter,
+	extraReviews bool,
+	googleMapsAPIKey string,
+) (jobs []scrapemate.IJob, err error) {
+	fmt.Fprintf(os.Stderr, "[HYBRID] Creating hybrid search jobs...\n")
+	fmt.Fprintf(os.Stderr, "[HYBRID] Parameters: geo=%s, zoom=%dz, radius=%.0fm, depth=%d, email=%v, lang=%s\n",
+		geoCoordinates, zoom, radius, maxDepth, email, langCode)
+
+	if geoCoordinates == "" {
+		return nil, fmt.Errorf("geo coordinates are required for hybrid mode")
+	}
+
+	parts := strings.Split(geoCoordinates, ",")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid geo coordinates: %s", geoCoordinates)
+	}
+
+	lat, err := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid latitude: %w", err)
+	}
+
+	lon, err := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid longitude: %w", err)
+	}
+
+	if lat < -90 || lat > 90 {
+		return nil, fmt.Errorf("invalid latitude: %f", lat)
+	}
+
+	if lon < -180 || lon > 180 {
+		return nil, fmt.Errorf("invalid longitude: %f", lon)
+	}
+
+	if zoom < 1 || zoom > 21 {
+		return nil, fmt.Errorf("invalid zoom level for hybrid mode: %d (must be 1-21)", zoom)
+	}
+
+	fmt.Fprintf(os.Stderr, "[HYBRID] Validated coordinates: lat=%.6f, lon=%.6f\n", lat, lon)
+
+	// Calculate approximate meters for nearby phase (for logging)
+	zoomMeters := ConvertZoomToMeters(zoom, lat)
+	fmt.Fprintf(os.Stderr, "[HYBRID] Zoom conversion: %dz -> %dm for nearby search phase\n", zoom, zoomMeters)
+
+	scanner := bufio.NewScanner(r)
+
+	for scanner.Scan() {
+		query := strings.TrimSpace(scanner.Text())
+		if query == "" {
+			continue
+		}
+
+		var id string
+
+		if before, after, ok := strings.Cut(query, "#!#"); ok {
+			query = strings.TrimSpace(before)
+			id = strings.TrimSpace(after)
+		}
+
+		opts := []gmaps.HybridJobOptions{}
+
+		if dedup != nil {
+			opts = append(opts, gmaps.WithHybridDeduper(dedup))
+		}
+
+		if exitMonitor != nil {
+			opts = append(opts, gmaps.WithHybridExitMonitor(exitMonitor))
+		}
+
+		if extraReviews {
+			opts = append(opts, gmaps.WithHybridExtraReviews())
+		}
+
+		if googleMapsAPIKey != "" {
+			opts = append(opts, gmaps.WithHybridGoogleMapsAPIKey(googleMapsAPIKey))
+		}
+
+		job := gmaps.NewHybridJob(
+			id,
+			langCode,
+			query,
+			lat,
+			lon,
+			zoom,
+			radius,
+			maxDepth,
+			email,
+			opts...,
+		)
+		jobs = append(jobs, job)
+		fmt.Fprintf(os.Stderr, "[HYBRID] Created hybrid job for query: '%s'\n", query)
+	}
+
+	fmt.Fprintf(os.Stderr, "[HYBRID] Total hybrid jobs created: %d\n", len(jobs))
+	fmt.Fprintf(os.Stderr, "[HYBRID] Workflow: Fast mode (0-21 results) -> Nearby search at each location -> Full place details\n")
+
+	return jobs, scanner.Err()
+}
+
 func CreateNearbySearchJobs(
 	langCode string,
 	r io.Reader,

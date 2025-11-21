@@ -215,6 +215,7 @@ type formData struct {
 	Zoom             int
 	FastMode         bool
 	NearbyMode       bool
+	HybridMode       bool
 	Radius           int
 	Lat              string
 	Lon              string
@@ -369,14 +370,16 @@ func (s *Server) scrape(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse mode from radio buttons (regular/fast/nearby)
+	// Parse mode from radio buttons (regular/fast/nearby/hybrid)
 	mode := r.Form.Get("mode")
 	switch mode {
 	case "fast":
 		newJob.Data.FastMode = true
 	case "nearby":
 		newJob.Data.NearbyMode = true
-	// default case is "regular" mode - both FastMode and NearbyMode remain false
+	case "hybrid":
+		newJob.Data.HybridMode = true
+	// default case is "regular" mode - all mode flags remain false
 	}
 
 	newJob.Data.Radius, err = strconv.Atoi(r.Form.Get("radius"))
@@ -413,7 +416,7 @@ func (s *Server) scrape(w http.ResponseWriter, r *http.Request) {
 	// Log all received parameters for debugging
 	log.Printf("Job %s (%s) parameters received from web UI:", newJob.ID, newJob.Name)
 	log.Printf("  - Keywords: %v", newJob.Data.Keywords)
-	log.Printf("  - Mode: NearbyMode=%v, FastMode=%v", newJob.Data.NearbyMode, newJob.Data.FastMode)
+	log.Printf("  - Mode: NearbyMode=%v, FastMode=%v, HybridMode=%v", newJob.Data.NearbyMode, newJob.Data.FastMode, newJob.Data.HybridMode)
 	log.Printf("  - Location: lat=%s, lon=%s, zoom=%d, radius=%dm", newJob.Data.Lat, newJob.Data.Lon, newJob.Data.Zoom, newJob.Data.Radius)
 	log.Printf("  - Scraping: depth=%d, email=%v, lang=%s", newJob.Data.Depth, newJob.Data.Email, newJob.Data.Lang)
 	log.Printf("  - Timeouts: MaxTime=%v, ExitOnInactivity=%v", newJob.Data.MaxTime, newJob.Data.ExitOnInactivity)
