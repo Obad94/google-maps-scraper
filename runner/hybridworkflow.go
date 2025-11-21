@@ -190,6 +190,19 @@ func RunHybridFile(ctx context.Context, cfg *Config, input io.Reader, writers []
     exitMonitor.SetSeedCount(len(nearbyJobs))
 
     opts := []func(*scrapemateapp.Config) error{ scrapemateapp.WithConcurrency(cfg.Concurrency) }
+    
+    // Apply exit-on-inactivity if configured, with minimum safety timeout based on depth
+    if cfg.ExitOnInactivityDuration > 0 {
+        minInactivityTimeout := time.Duration(cfg.MaxDepth*4)*time.Second + 2*time.Minute
+        exitOnInactivity := cfg.ExitOnInactivityDuration
+        if exitOnInactivity < minInactivityTimeout {
+            fmt.Fprintf(os.Stderr, "[HYBRID] Warning: -exit-on-inactivity %v is too short for depth %d. Using minimum %v\n",
+                exitOnInactivity, cfg.MaxDepth, minInactivityTimeout)
+            exitOnInactivity = minInactivityTimeout
+        }
+        opts = append(opts, scrapemateapp.WithExitOnInactivity(exitOnInactivity))
+    }
+    
     // Browser / JS for nearby jobs
     if cfg.Debug {
         opts = append(opts, scrapemateapp.WithJS(scrapemateapp.Headfull(), scrapemateapp.DisableImages()))
@@ -227,6 +240,19 @@ func RunHybridWeb(ctx context.Context, cfg *Config, keywords []string, writers [
     exitMonitor.SetSeedCount(len(nearbyJobs))
 
     opts := []func(*scrapemateapp.Config) error{ scrapemateapp.WithConcurrency(cfg.Concurrency) }
+    
+    // Apply exit-on-inactivity if configured, with minimum safety timeout based on depth
+    if cfg.ExitOnInactivityDuration > 0 {
+        minInactivityTimeout := time.Duration(cfg.MaxDepth*4)*time.Second + 2*time.Minute
+        exitOnInactivity := cfg.ExitOnInactivityDuration
+        if exitOnInactivity < minInactivityTimeout {
+            fmt.Fprintf(os.Stderr, "[HYBRID] Warning: -exit-on-inactivity %v is too short for depth %d. Using minimum %v\n",
+                exitOnInactivity, cfg.MaxDepth, minInactivityTimeout)
+            exitOnInactivity = minInactivityTimeout
+        }
+        opts = append(opts, scrapemateapp.WithExitOnInactivity(exitOnInactivity))
+    }
+    
     if cfg.Debug { opts = append(opts, scrapemateapp.WithJS(scrapemateapp.Headfull(), scrapemateapp.DisableImages())) } else { opts = append(opts, scrapemateapp.WithJS(scrapemateapp.DisableImages())) }
     if len(cfg.Proxies) > 0 { opts = append(opts, scrapemateapp.WithProxies(cfg.Proxies)) }
     if !cfg.DisablePageReuse { opts = append(opts, scrapemateapp.WithPageReuseLimit(2), scrapemateapp.WithPageReuseLimit(200)) }

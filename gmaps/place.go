@@ -91,6 +91,13 @@ func (j *PlaceJob) Process(_ context.Context, resp *scrapemate.Response) (any, [
 		resp.Meta = nil
 	}()
 
+	countCompletion := true
+	defer func() {
+		if countCompletion && j.ExitMonitor != nil {
+			j.ExitMonitor.IncrPlacesCompleted(1)
+		}
+	}()
+
 	raw, ok := resp.Meta["json"].([]byte)
 	if !ok {
 		return nil, nil, fmt.Errorf("could not convert to []byte")
@@ -125,6 +132,7 @@ func (j *PlaceJob) Process(_ context.Context, resp *scrapemate.Response) (any, [
 		if j.ExitMonitor != nil {
 			j.ExitMonitor.IncrPlacesCompleted(1)
 		}
+		countCompletion = false
 		return nil, nil, nil
 	}
 
@@ -142,10 +150,9 @@ func (j *PlaceJob) Process(_ context.Context, resp *scrapemate.Response) (any, [
 		emailJob := NewEmailJob(j.ID, &entry, opts...)
 
 		j.UsageInResultststs = false
+		countCompletion = false
 
 		return nil, []scrapemate.IJob{emailJob}, nil
-	} else if j.ExitMonitor != nil {
-		j.ExitMonitor.IncrPlacesCompleted(1)
 	}
 
 	return &entry, nil, err

@@ -846,3 +846,19 @@ MSYS_NO_PATHCONV=1 docker run --rm --shm-size=1g \
     "" 
   ]
 }
+
+
+
+MSYS_NO_PATHCONV=1 docker run --rm --shm-size=1g \
+  -v "C:/Users/Obad/Desktop/google-maps-scraper/gmapsdata:/gmapsdata" \
+  google-maps-scraper \
+  -hybrid-mode \
+  -geo "21.030625,105.819332" \
+  -input /gmapsdata/nearby-categories.txt \
+  -results /gmapsdata/hybrid_results.csv \
+  -zoom 15 \
+  -depth 2 \
+  -email \
+  -radius 2000 \
+  -c 10 \
+  -exit-on-inactivity 3m
