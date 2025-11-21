@@ -211,7 +211,6 @@ func RunHybridFile(ctx context.Context, cfg *Config, input io.Reader, writers []
     go exitMonitor.Run(ctx2)
 
     if err := app.Start(ctx2, nearbyJobs...); err != nil { return err }
-    exitMonitor.IncrPlacesCompleted(len(nearbyJobs))
     Telemetry().Send(ctx, tlmt.NewEvent("hybrid_runner", map[string]any{"seeds": len(seeds), "nearby_jobs": len(nearbyJobs)}))
     return nil
 }

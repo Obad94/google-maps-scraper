@@ -107,6 +107,9 @@ func (j *PlaceJob) Process(_ context.Context, resp *scrapemate.Response) (any, [
 		entry.Link = j.GetURL()
 	}
 
+	// Populate Place ID from the link (extracts from URL)
+	entry.populatePlaceIDFromLink()
+
 	// Enrich with Google Places API if API key is provided
 	if j.GoogleMapsAPIKey != "" {
 		if err := EnrichEntryWithPlaceID(&entry, j.GoogleMapsAPIKey); err != nil {

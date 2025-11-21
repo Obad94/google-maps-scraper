@@ -125,6 +125,38 @@ func (e *Entry) isWithinRadius(lat, lon, radius float64) bool {
 	return distance <= radius
 }
 
+// extractPlaceIDFromURL extracts the Google Place ID from a Google Maps URL
+// The Place ID is typically found after !19s in the data parameter or in the URL path
+func extractPlaceIDFromURL(urlStr string) string {
+	// Try to extract from data parameter (!19s pattern)
+	// Example: ...data=!4m7!3m6!...!19sChIJES5XcgCrNTERBoqVAYILdCM...
+	if idx := strings.Index(urlStr, "!19s"); idx != -1 {
+		remainder := urlStr[idx+4:] // Skip "!19s"
+		// Place ID continues until the next ! or ? or end of string
+		endIdx := strings.IndexAny(remainder, "!?&")
+		if endIdx == -1 {
+			return remainder
+		}
+		return remainder[:endIdx]
+	}
+
+	return ""
+}
+
+// populatePlaceIDFromLink populates PlaceID and PlaceIDURL from the entry's Link field
+func (e *Entry) populatePlaceIDFromLink() {
+	if e.Link == "" {
+		return
+	}
+
+	placeID := extractPlaceIDFromURL(e.Link)
+	if placeID != "" {
+		e.PlaceID = placeID
+		// Create Place ID URL using the place_id parameter
+		e.PlaceIDURL = fmt.Sprintf("https://www.google.com/maps/place/?q=place_id:%s", placeID)
+	}
+}
+
 func (e *Entry) IsWebsiteValidForEmail() bool {
 	if e.WebSite == "" {
 		return false
@@ -914,6 +946,11 @@ func getNthElementAndCast[T any](arr []any, indexes ...int) T {
 	}
 
 	if len(indexes) == 0 || len(arr) == 0 {
+		return defaultVal
+	}
+
+	// Bounds check to prevent panic when index is out of range
+	if indexes[0] >= len(arr) {
 		return defaultVal
 	}
 
