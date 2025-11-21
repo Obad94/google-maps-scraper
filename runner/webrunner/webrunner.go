@@ -447,6 +447,7 @@ func (w *webrunner) setupMate(_ context.Context, writer io.Writer, job *web.Job)
 	// but during scrolling no jobs complete yet
 	if job.Data.ExitOnInactivity > 0 {
 		exitOnInactivity := job.Data.ExitOnInactivity
+		log.Printf("job %s: User provided ExitOnInactivity: %v", job.ID, exitOnInactivity)
 
 		// For nearby mode with deep scrolling, calculate minimum safe timeout
 		// Each scroll iteration can take 2-4 seconds, so we need at least (depth × 4s) + 2 minutes buffer
@@ -454,13 +455,16 @@ func (w *webrunner) setupMate(_ context.Context, writer io.Writer, job *web.Job)
 			minInactivityTimeout := time.Duration(job.Data.Depth*4)*time.Second + 2*time.Minute
 
 			if exitOnInactivity < minInactivityTimeout {
-				log.Printf("Warning: exit-on-inactivity %v is too short for depth %d. Using minimum %v\n",
-					exitOnInactivity, job.Data.Depth, minInactivityTimeout)
+				log.Printf("job %s: Warning: exit-on-inactivity %v is too short for depth %d. Using minimum %v",
+					job.ID, exitOnInactivity, job.Data.Depth, minInactivityTimeout)
 				exitOnInactivity = minInactivityTimeout
 			}
 		}
 
+		log.Printf("job %s: Setting ExitOnInactivity to %v", job.ID, exitOnInactivity)
 		opts = append(opts, scrapemateapp.WithExitOnInactivity(exitOnInactivity))
+	} else {
+		log.Printf("job %s: ExitOnInactivity not set by user, relying on exiter package for completion detection", job.ID)
 	}
 
 	if !job.Data.FastMode {

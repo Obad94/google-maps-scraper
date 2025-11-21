@@ -330,7 +330,8 @@ func (s *Server) scrape(w http.ResponseWriter, r *http.Request) {
 	newJob.Data.MaxTime = maxTime
 
 	// Parse exit on inactivity (optional)
-	// Default to maxTime if not provided - this prevents premature exit during long operations
+	// Only set if user explicitly provides it - otherwise leave at 0 (disabled)
+	// The webrunner will handle inactivity detection intelligently based on mode and depth
 	exitOnInactivityStr := r.Form.Get("exitoninactivity")
 	if exitOnInactivityStr != "" {
 		exitOnInactivity, err := time.ParseDuration(exitOnInactivityStr)
@@ -339,10 +340,8 @@ func (s *Server) scrape(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		newJob.Data.ExitOnInactivity = exitOnInactivity
-	} else {
-		// Default to same as maxTime
-		newJob.Data.ExitOnInactivity = maxTime
 	}
+	// If empty, ExitOnInactivity stays at 0 (disabled)
 
 	keywordsStr, ok := r.Form["keywords"]
 	if !ok {
@@ -410,6 +409,15 @@ func (s *Server) scrape(w http.ResponseWriter, r *http.Request) {
 			newJob.Data.Proxies = append(newJob.Data.Proxies, p)
 		}
 	}
+
+	// Log all received parameters for debugging
+	log.Printf("Job %s (%s) parameters received from web UI:", newJob.ID, newJob.Name)
+	log.Printf("  - Keywords: %v", newJob.Data.Keywords)
+	log.Printf("  - Mode: NearbyMode=%v, FastMode=%v", newJob.Data.NearbyMode, newJob.Data.FastMode)
+	log.Printf("  - Location: lat=%s, lon=%s, zoom=%d, radius=%dm", newJob.Data.Lat, newJob.Data.Lon, newJob.Data.Zoom, newJob.Data.Radius)
+	log.Printf("  - Scraping: depth=%d, email=%v, lang=%s", newJob.Data.Depth, newJob.Data.Email, newJob.Data.Lang)
+	log.Printf("  - Timeouts: MaxTime=%v, ExitOnInactivity=%v", newJob.Data.MaxTime, newJob.Data.ExitOnInactivity)
+	log.Printf("  - Proxies: %d configured", len(newJob.Data.Proxies))
 
 	err = newJob.Validate()
 	if err != nil {
