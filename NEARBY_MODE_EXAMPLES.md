@@ -2,15 +2,22 @@
 
 ## Understanding the Parameters
 
-### `-zoom-for-url` (Map View)
-Controls how zoomed in the map appears when loading. This affects:
+### `-zoom` (Map View)
+**Unified zoom parameter** that auto-detects between zoom levels (z) and meters (m).
+
+For nearby mode, use meters (e.g., `500m`, `2000m`):
+- Controls how zoomed in the map appears when loading
 - Initial map view distance
 - What Google Maps displays in the viewport
 - Does NOT filter results
 
-**Default:** 2000 meters
+**Default:** 2000m (for nearby mode), 15z (for regular mode)
 
-### `-radius` (Result Filter)  
+**Auto-detection:** Values 1-21 = zoom level, 51+ = meters
+
+**Examples:** `-zoom 500m`, `-zoom 15z`, `-zoom 2000`
+
+### `-radius` (Result Filter)
 Filters which places get saved to your results file. This affects:
 - Final results in CSV
 - Only places within this distance are kept
@@ -32,7 +39,7 @@ MSYS_NO_PATHCONV=1 docker run --rm --shm-size=1g \
   -geo "24.93584,67.13801" \
   -input /gmapsdata/nearby-categories.txt \
   -results /gmapsdata/results.csv \
-  -zoom-for-url 500 \
+  -zoom 500m \
   -radius 2000 \
   -depth 20
 ```
@@ -50,7 +57,7 @@ MSYS_NO_PATHCONV=1 docker run --rm --shm-size=1g \
   -geo "24.93584,67.13801" \
   -input /gmapsdata/nearby-categories.txt \
   -results /gmapsdata/results.csv \
-  -zoom-for-url 1000 \
+  -zoom 1000m \
   -radius 1000 \
   -depth 15
 ```
@@ -58,7 +65,7 @@ MSYS_NO_PATHCONV=1 docker run --rm --shm-size=1g \
 
 ---
 
-### Example 3: Wide View, Tight Filter  
+### Example 3: Wide View, Tight Filter
 **Use Case:** See context but only save closest places
 ```bash
 MSYS_NO_PATHCONV=1 docker run --rm --shm-size=1g \
@@ -68,7 +75,7 @@ MSYS_NO_PATHCONV=1 docker run --rm --shm-size=1g \
   -geo "24.93584,67.13801" \
   -input /gmapsdata/nearby-categories.txt \
   -results /gmapsdata/results.csv \
-  -zoom-for-url 3000 \
+  -zoom 3000m \
   -radius 500 \
   -depth 10 \
   -email
@@ -87,7 +94,7 @@ MSYS_NO_PATHCONV=1 docker run --rm --shm-size=1g \
   -geo "40.7128,-74.0060" \
   -input /gmapsdata/nearby-categories.txt \
   -results /gmapsdata/local_results.csv \
-  -zoom-for-url 200 \
+  -zoom 200m \
   -radius 200 \
   -depth 5 \
   -email \
@@ -108,7 +115,7 @@ docker run --rm --shm-size=1g `
   -geo "24.93584,67.13801" `
   -input /gmapsdata/nearby-categories.txt `
   -results /gmapsdata/results.csv `
-  -zoom-for-url 500 `
+  -zoom 500m `
   -radius 1000 `
   -depth 20
 ```
@@ -131,7 +138,7 @@ Nearby search for 'restaurant' found 38 places (scrolled 20 times, radius: 1000.
 ```
 
 Key things to notice:
-1. **Initial URL** with your zoom-for-url parameter
+1. **Initial URL** with your zoom parameter
 2. **Final URL** after Google Maps redirect
 3. **Scroll progress** showing places found
 4. **Final summary** with radius used for filtering
@@ -141,7 +148,7 @@ Key things to notice:
 ## Tips
 
 1. **Start with defaults** and adjust based on results
-2. **Smaller zoom-for-url** = faster loading but may miss some places
+2. **Smaller zoom** = faster loading but may miss some places
 3. **Larger radius** = more results but may include irrelevant places  
 4. **Adjust depth** based on how thorough you want the search
 5. **Use -email** flag to extract emails (slower but more data)
@@ -161,6 +168,6 @@ Key things to notice:
 - Check the categories in your input file
 
 **Slow scraping?**
-- Decrease `-zoom-for-url` for faster map loading
+- Decrease `-zoom` for faster map loading
 - Reduce `-depth` to scroll less
 - Remove `-email` flag if not needed

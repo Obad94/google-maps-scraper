@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -59,7 +60,8 @@ type Config struct {
 	Email                    bool
 	CustomWriter             string
 	GeoCoordinates           string
-	Zoom                     int
+	ZoomLevel                int
+	ZoomMeters               int
 	RunMode                  int
 	DisableTelemetry         bool
 	WebRunner                bool
@@ -77,11 +79,62 @@ type Config struct {
 	FastMode                 bool
 	NearbyMode               bool
 	Radius                   float64
-	ZoomForURL               int
 	Addr                     string
 	DisablePageReuse         bool
 	ExtraReviews             bool
 	GoogleMapsAPIKey         string
+}
+
+// parseZoomLevel parses a zoom level string and returns zoomLevel (0-21) or zoomMeters (51+)
+// Supports formats: "15z", "2000m", "15", "2000"
+// Auto-detection: 1-21 = zoom level, 51+ = meters
+func parseZoomLevel(zoomStr string) (zoomLevel int, zoomMeters int, err error) {
+	zoomStr = strings.TrimSpace(zoomStr)
+
+	// Check for explicit unit suffix
+	if strings.HasSuffix(zoomStr, "z") {
+		// Zoom level: "15z"
+		val, err := strconv.Atoi(strings.TrimSuffix(zoomStr, "z"))
+		if err != nil {
+			return 0, 0, fmt.Errorf("invalid zoom level format: %s", zoomStr)
+		}
+		if val < 0 || val > 21 {
+			return 0, 0, fmt.Errorf("zoom level must be between 0-21z, got: %s", zoomStr)
+		}
+		return val, 0, nil
+	}
+
+	if strings.HasSuffix(zoomStr, "m") {
+		// Meters: "2000m"
+		val, err := strconv.Atoi(strings.TrimSuffix(zoomStr, "m"))
+		if err != nil {
+			return 0, 0, fmt.Errorf("invalid zoom meters format: %s", zoomStr)
+		}
+		if val < 51 {
+			return 0, 0, fmt.Errorf("zoom meters must be 51m or greater, got: %s", zoomStr)
+		}
+		return 0, val, nil
+	}
+
+	// No unit - auto-detect based on value
+	val, err := strconv.Atoi(zoomStr)
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid zoom value: %s (use format like '15z' or '2000m')", zoomStr)
+	}
+
+	if val >= 1 && val <= 21 {
+		// Assume zoom level
+		return val, 0, nil
+	} else if val >= 51 {
+		// Assume meters
+		return 0, val, nil
+	} else if val == 0 {
+		// Special case: 0 is valid zoom level
+		return 0, 0, nil
+	} else {
+		// Ambiguous range 22-50
+		return 0, 0, fmt.Errorf("ambiguous zoom value: %d (use explicit unit: '15z' for zoom level or '2000m' for meters)", val)
+	}
 }
 
 func ParseConfig() *Config {
@@ -94,7 +147,8 @@ func ParseConfig() *Config {
 	}
 
 	var (
-		proxies string
+		proxies  string
+		zoomStr  string
 	)
 
 	flag.IntVar(&cfg.Concurrency, "c", min(runtime.NumCPU()/2, 1), "sets the concurrency [default: half of CPU cores]")
@@ -111,7 +165,7 @@ func ParseConfig() *Config {
 	flag.BoolVar(&cfg.Email, "email", false, "extract emails from websites")
 	flag.StringVar(&cfg.CustomWriter, "writer", "", "use custom writer plugin (format: 'dir:pluginName')")
 	flag.StringVar(&cfg.GeoCoordinates, "geo", "", "set geo coordinates for search (e.g., '37.7749,-122.4194')")
-	flag.IntVar(&cfg.Zoom, "zoom", 15, "set zoom level (0-21) for search")
+	flag.StringVar(&zoomStr, "zoom", "15z", "zoom level (1-21z) or distance in meters (51m+). Examples: '15z', '2000m', '500m'. Auto-detects: 1-21=zoom level, 51+=meters")
 	flag.BoolVar(&cfg.WebRunner, "web", false, "run web server instead of crawling")
 	flag.StringVar(&cfg.DataFolder, "data-folder", "webdata", "data folder for web runner")
 	flag.StringVar(&proxies, "proxies", "", "comma separated list of proxies to use in the format protocol://user:pass@host:port example: socks5://localhost:9050 or http://user:pass@localhost:9050")
@@ -126,12 +180,19 @@ func ParseConfig() *Config {
 	flag.BoolVar(&cfg.FastMode, "fast-mode", false, "fast mode (reduced data collection)")
 	flag.BoolVar(&cfg.NearbyMode, "nearby-mode", false, "nearby search mode (right-click search nearby simulation)")
 	flag.Float64Var(&cfg.Radius, "radius", 10000, "search radius in meters for filtering results. Default is 10000 meters")
-	flag.IntVar(&cfg.ZoomForURL, "zoom-for-url", 2000, "zoom distance in meters for URL generation (affects map view). Default is 2000 meters")
 	flag.StringVar(&cfg.Addr, "addr", ":8080", "address to listen on for web server")
 	flag.BoolVar(&cfg.DisablePageReuse, "disable-page-reuse", false, "disable page reuse in playwright")
 	flag.BoolVar(&cfg.ExtraReviews, "extra-reviews", false, "enable extra reviews collection")
 
 	flag.Parse()
+
+	// Parse zoom level
+	zoomLevel, zoomMeters, err := parseZoomLevel(zoomStr)
+	if err != nil {
+		panic(err)
+	}
+	cfg.ZoomLevel = zoomLevel
+	cfg.ZoomMeters = zoomMeters
 
 	if cfg.AwsAccessKey == "" {
 		cfg.AwsAccessKey = os.Getenv("MY_AWS_ACCESS_KEY")
@@ -167,10 +228,6 @@ func ParseConfig() *Config {
 
 	if cfg.MaxDepth < 1 {
 		panic("MaxDepth must be greater than 0")
-	}
-
-	if cfg.Zoom < 0 || cfg.Zoom > 21 {
-		panic("Zoom must be between 0 and 21")
 	}
 
 	if cfg.Dsn == "" && cfg.ProduceOnly {

@@ -229,13 +229,16 @@ Nearby mode simulates the "Search Nearby" feature in Google Maps, returning plac
 
 ### Important Parameters
 
-**`-zoom-for-url`** (Default: 2000 meters)
-- Controls the map view distance in the Google Maps URL
-- Affects how the map is initially displayed
-- Smaller values = more zoomed in, larger values = more zoomed out
-- This is used for URL generation only
+**`-zoom`** (Default: 2000m for nearby mode, 15z for regular mode)
+- **Unified zoom parameter** that auto-detects between zoom levels (z) and meters (m)
+- **For nearby mode**: Use meters (e.g., `500m`, `2000m`) to control map view distance
+  - Smaller values = more zoomed in, larger values = more zoomed out
+  - This is used for URL generation only
+- **For regular mode**: Use zoom levels (e.g., `15z`, `18z`) for Google Maps zoom (0-21)
+- **Auto-detection**: Values 1-21 = zoom level, 51+ = meters
+- **Examples**: `-zoom 500m`, `-zoom 15z`, `-zoom 2000`
 
-**`-radius`** (Default: 10000 meters)  
+**`-radius`** (Default: 10000 meters)
 - Filters which places are saved to your results
 - Only places within this distance from center point are kept
 - This is used for post-processing filter
@@ -247,7 +250,7 @@ Nearby mode simulates the "Search Nearby" feature in Google Maps, returning plac
 
 ### Example
 ```bash
--zoom-for-url 500 -radius 1000
+-zoom 500m -radius 1000
 ```
 This will:
 1. Load the map zoomed to 500m view
@@ -521,10 +524,8 @@ try `./google-maps-scraper -h` to see the command line options available:
         run web server instead of crawling
   -writer string
         use custom writer plugin (format: 'dir:pluginName')
-  -zoom int
-        set zoom level (0-21) for search (default 15)
-  -zoom-for-url int
-        zoom distance in meters for URL generation (affects map view). Default is 2000 meters (default 2000)
+  -zoom string
+        zoom level (1-21z) or distance in meters (51m+). Examples: '15z', '2000m', '500m'. Auto-detects: 1-21=zoom level, 51+=meters (default "15z")
 ```
 
 ## Using a custom writer
@@ -804,12 +805,12 @@ docker run -v ${PWD}\gmapsdata:/gmapsdata -p 8080:8080 google-maps-scraper -data
 
 
 Powershell:
-docker run --rm --shm-size=1g -v ${PWD}\gmapsdata:/gmapsdata -p 8080:8080 google-maps-scraper -nearby-mode -geo "24.93584,67.13801" -input /gmapsdata/nearby-categories.txt -results /gmapsdata/nearby_results_final.csv -zoom-for-url 500 -radius 1000 -depth 20 -email -exit-on-inactivity 10m
+docker run --rm --shm-size=1g -v ${PWD}\gmapsdata:/gmapsdata -p 8080:8080 google-maps-scraper -nearby-mode -geo "24.93584,67.13801" -input /gmapsdata/nearby-categories.txt -results /gmapsdata/nearby_results_final.csv -zoom 500m -radius 1000 -depth 20 -email -exit-on-inactivity 10m
 
 Git Bash:
-MSYS_NO_PATHCONV=1 docker run --rm --shm-size=1g -v "${PWD}/gmapsdata:/gmapsdata" -p 8080:8080 google-maps-scraper -nearby-mode -geo "24.93584,67.13801" -input /gmapsdata/nearby-categories.txt -results /gmapsdata/nearby_results_final.csv -zoom-for-url 500 -radius 1000 -depth 20 -email -exit-on-inactivity 10m
+MSYS_NO_PATHCONV=1 docker run --rm --shm-size=1g -v "${PWD}/gmapsdata:/gmapsdata" -p 8080:8080 google-maps-scraper -nearby-mode -geo "24.93584,67.13801" -input /gmapsdata/nearby-categories.txt -results /gmapsdata/nearby_results_final.csv -zoom 500m -radius 1000 -depth 20 -email -exit-on-inactivity 10m
 
-MSYS_NO_PATHCONV=1 docker run --rm --shm-size=1g -v "${PWD}/gmapsdata:/gmapsdata" -p 8080:8080 google-maps-scraper -nearby-mode -geo "21.030625,105.819332" -input /gmapsdata/nearby-categories.txt -results /gmapsdata/nearby_results_final.csv -depth 17 -email -zoom-for-url 51
+MSYS_NO_PATHCONV=1 docker run --rm --shm-size=1g -v "${PWD}/gmapsdata:/gmapsdata" -p 8080:8080 google-maps-scraper -nearby-mode -geo "21.030625,105.819332" -input /gmapsdata/nearby-categories.txt -results /gmapsdata/nearby_results_final.csv -depth 17 -email -zoom 500m
 
 
 MSYS_NO_PATHCONV=1 docker run --rm --shm-size=1g \
@@ -823,4 +824,25 @@ MSYS_NO_PATHCONV=1 docker run --rm --shm-size=1g \
   -results /gmapsdata/nearby_results_final.csv \
   -depth 17 \
   -email \
-  -zoom-for-url 51
+  -zoom 500m
+
+
+# API calling to create a new job:
+  {
+  "name": "Job 1", 
+  "keywords": [
+    "restaurant" 
+  ],
+  "lang": "en", 
+  "zoom": 20, 
+  "lat": "21.030625", 
+  "lon": "105.819332", 
+  "fast_mode": true,
+  "radius": 100, 
+  "depth": 10, 
+  "email": true,
+  "max_time": 10000, 
+  "proxies": [
+    "" 
+  ]
+}

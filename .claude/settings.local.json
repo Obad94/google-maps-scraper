@@ -12,7 +12,9 @@
       "Bash(/c/Program Files/Go/bin/go.exe get:*)",
       "Bash(where:*)",
       "Bash(git remote:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(go build:*)",
+      "Bash(/c/Program Files/Go/bin/go.exe build:*)"
     ],
     "deny": [],
     "ask": []

@@ -207,18 +207,20 @@ func (s *Server) Start(ctx context.Context) error {
 }
 
 type formData struct {
-	Name     string
-	MaxTime  string
-	Keywords []string
-	Language string
-	Zoom     int
-	FastMode bool
-	Radius   int
-	Lat      string
-	Lon      string
-	Depth    int
-	Email    bool
-	Proxies  []string
+	Name             string
+	MaxTime          string
+	ExitOnInactivity string
+	Keywords         []string
+	Language         string
+	Zoom             int
+	FastMode         bool
+	NearbyMode       bool
+	Radius           int
+	Lat              string
+	Lon              string
+	Depth            int
+	Email            bool
+	Proxies          []string
 }
 
 type ctxKey string
@@ -270,17 +272,19 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := formData{
-		Name:     "",
-		MaxTime:  "10m",
-		Keywords: []string{},
-		Language: "en",
-		Zoom:     15,
-		FastMode: false,
-		Radius:   10000,
-		Lat:      "0",
-		Lon:      "0",
-		Depth:    10,
-		Email:    false,
+		Name:             "",
+		MaxTime:          "10m",
+		ExitOnInactivity: "",
+		Keywords:         []string{},
+		Language:         "en",
+		Zoom:             15,
+		FastMode:         false,
+		NearbyMode:       false,
+		Radius:           10000,
+		Lat:              "0",
+		Lon:              "0",
+		Depth:            10,
+		Email:            false,
 	}
 
 	_ = tmpl.Execute(w, data)
@@ -325,6 +329,21 @@ func (s *Server) scrape(w http.ResponseWriter, r *http.Request) {
 
 	newJob.Data.MaxTime = maxTime
 
+	// Parse exit on inactivity (optional)
+	// Default to maxTime if not provided - this prevents premature exit during long operations
+	exitOnInactivityStr := r.Form.Get("exitoninactivity")
+	if exitOnInactivityStr != "" {
+		exitOnInactivity, err := time.ParseDuration(exitOnInactivityStr)
+		if err != nil {
+			http.Error(w, "invalid exit on inactivity duration", http.StatusUnprocessableEntity)
+			return
+		}
+		newJob.Data.ExitOnInactivity = exitOnInactivity
+	} else {
+		// Default to same as maxTime
+		newJob.Data.ExitOnInactivity = maxTime
+	}
+
 	keywordsStr, ok := r.Form["keywords"]
 	if !ok {
 		http.Error(w, "missing keywords", http.StatusUnprocessableEntity)
@@ -351,8 +370,14 @@ func (s *Server) scrape(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if r.Form.Get("fastmode") == "on" {
+	// Parse mode from radio buttons (regular/fast/nearby)
+	mode := r.Form.Get("mode")
+	switch mode {
+	case "fast":
 		newJob.Data.FastMode = true
+	case "nearby":
+		newJob.Data.NearbyMode = true
+	// default case is "regular" mode - both FastMode and NearbyMode remain false
 	}
 
 	newJob.Data.Radius, err = strconv.Atoi(r.Form.Get("radius"))

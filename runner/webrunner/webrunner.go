@@ -304,26 +304,51 @@ func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) error {
 	dedup := deduper.New()
 	exitMonitor := exiter.New()
 
-	seedJobs, err := runner.CreateSeedJobs(
-		job.Data.FastMode,
-		job.Data.Lang,
-		strings.NewReader(strings.Join(job.Data.Keywords, "\n")),
-		job.Data.Depth,
-		job.Data.Email,
-		coords,
-		job.Data.Zoom,
-		func() float64 {
-			if job.Data.Radius <= 0 {
-				return 10000 // 10 km
-			}
+	var seedJobs []scrapemate.IJob
 
-			return float64(job.Data.Radius)
-		}(),
-		dedup,
-		exitMonitor,
-		w.cfg.ExtraReviews,
-		w.cfg.GoogleMapsAPIKey,
-	)
+	if job.Data.NearbyMode {
+		// Nearby mode: use CreateNearbySearchJobs
+		seedJobs, err = runner.CreateNearbySearchJobs(
+			job.Data.Lang,
+			strings.NewReader(strings.Join(job.Data.Keywords, "\n")),
+			job.Data.Depth,
+			job.Data.Email,
+			coords,
+			func() float64 {
+				if job.Data.Radius <= 0 {
+					return 10000 // 10 km
+				}
+				return float64(job.Data.Radius)
+			}(),
+			float64(job.Data.Zoom), // In nearby mode, Zoom is interpreted as meters
+			dedup,
+			exitMonitor,
+			w.cfg.ExtraReviews,
+			w.cfg.GoogleMapsAPIKey,
+		)
+	} else {
+		// Regular mode: use CreateSeedJobs
+		seedJobs, err = runner.CreateSeedJobs(
+			job.Data.FastMode,
+			job.Data.Lang,
+			strings.NewReader(strings.Join(job.Data.Keywords, "\n")),
+			job.Data.Depth,
+			job.Data.Email,
+			coords,
+			job.Data.Zoom, // In regular mode, Zoom is a zoom level (0-21)
+			func() float64 {
+				if job.Data.Radius <= 0 {
+					return 10000 // 10 km
+				}
+				return float64(job.Data.Radius)
+			}(),
+			dedup,
+			exitMonitor,
+			w.cfg.ExtraReviews,
+			w.cfg.GoogleMapsAPIKey,
+		)
+	}
+
 	if err != nil {
 		job.Status = web.StatusFailed
 		jobErr = err
@@ -413,7 +438,29 @@ func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) error {
 func (w *webrunner) setupMate(_ context.Context, writer io.Writer, job *web.Job) (*scrapemateapp.ScrapemateApp, error) {
 	opts := []func(*scrapemateapp.Config) error{
 		scrapemateapp.WithConcurrency(w.cfg.Concurrency),
-		scrapemateapp.WithExitOnInactivity(time.Minute * 3),
+	}
+
+	// Only use ExitOnInactivity if user explicitly sets it
+	// The exiter package handles completion detection automatically
+	// ExitOnInactivity is problematic during long BrowserActions (scrolling)
+	// because scrapemate measures inactivity from first job completion,
+	// but during scrolling no jobs complete yet
+	if job.Data.ExitOnInactivity > 0 {
+		exitOnInactivity := job.Data.ExitOnInactivity
+
+		// For nearby mode with deep scrolling, calculate minimum safe timeout
+		// Each scroll iteration can take 2-4 seconds, so we need at least (depth × 4s) + 2 minutes buffer
+		if job.Data.NearbyMode && job.Data.Depth > 0 {
+			minInactivityTimeout := time.Duration(job.Data.Depth*4)*time.Second + 2*time.Minute
+
+			if exitOnInactivity < minInactivityTimeout {
+				log.Printf("Warning: exit-on-inactivity %v is too short for depth %d. Using minimum %v\n",
+					exitOnInactivity, job.Data.Depth, minInactivityTimeout)
+				exitOnInactivity = minInactivityTimeout
+			}
+		}
+
+		opts = append(opts, scrapemateapp.WithExitOnInactivity(exitOnInactivity))
 	}
 
 	if !job.Data.FastMode {

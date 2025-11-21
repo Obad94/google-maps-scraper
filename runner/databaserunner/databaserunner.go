@@ -147,7 +147,7 @@ func (d *dbrunner) produceSeedJobs(ctx context.Context) error {
 		d.cfg.MaxDepth,
 		d.cfg.Email,
 		d.cfg.GeoCoordinates,
-		d.cfg.Zoom,
+		d.cfg.ZoomLevel,
 		d.cfg.Radius,
 		nil,
 		nil,

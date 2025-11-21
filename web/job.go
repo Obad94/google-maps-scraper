@@ -62,17 +62,19 @@ func (j *Job) Validate() error {
 }
 
 type JobData struct {
-	Keywords []string      `json:"keywords"`
-	Lang     string        `json:"lang"`
-	Zoom     int           `json:"zoom"`
-	Lat      string        `json:"lat"`
-	Lon      string        `json:"lon"`
-	FastMode bool          `json:"fast_mode"`
-	Radius   int           `json:"radius"`
-	Depth    int           `json:"depth"`
-	Email    bool          `json:"email"`
-	MaxTime  time.Duration `json:"max_time"`
-	Proxies  []string      `json:"proxies"`
+	Keywords           []string      `json:"keywords"`
+	Lang               string        `json:"lang"`
+	Zoom               int           `json:"zoom"`
+	Lat                string        `json:"lat"`
+	Lon                string        `json:"lon"`
+	FastMode           bool          `json:"fast_mode"`
+	NearbyMode         bool          `json:"nearby_mode"`
+	Radius             int           `json:"radius"`
+	Depth              int           `json:"depth"`
+	Email              bool          `json:"email"`
+	MaxTime            time.Duration `json:"max_time"`
+	ExitOnInactivity   time.Duration `json:"exit_on_inactivity"`
+	Proxies            []string      `json:"proxies"`
 }
 
 func (d *JobData) Validate() error {
@@ -88,6 +90,19 @@ func (d *JobData) Validate() error {
 		return errors.New("invalid lang")
 	}
 
+	// Validate zoom based on mode
+	if d.NearbyMode {
+		// In nearby mode, zoom is interpreted as meters (must be 51+)
+		if d.Zoom < 51 {
+			return errors.New("zoom must be 51 or greater (meters) in nearby mode")
+		}
+	} else {
+		// In regular mode, zoom is a level (0-21)
+		if d.Zoom < 0 || d.Zoom > 21 {
+			return errors.New("zoom must be between 0 and 21 in regular mode")
+		}
+	}
+
 	if d.Depth == 0 {
 		return errors.New("missing depth")
 	}
@@ -96,8 +111,17 @@ func (d *JobData) Validate() error {
 		return errors.New("missing max time")
 	}
 
+	// Validate mode-specific requirements
+	if d.FastMode && d.NearbyMode {
+		return errors.New("cannot enable both fast mode and nearby mode")
+	}
+
 	if d.FastMode && (d.Lat == "" || d.Lon == "") {
-		return errors.New("missing geo coordinates")
+		return errors.New("missing geo coordinates for fast mode")
+	}
+
+	if d.NearbyMode && (d.Lat == "" || d.Lon == "") {
+		return errors.New("missing geo coordinates for nearby mode")
 	}
 
 	return nil

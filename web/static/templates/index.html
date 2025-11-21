@@ -71,6 +71,7 @@
                             <div class="form-group">
                                 <label for="zoom">Zoom:</label>
                                 <input type="number" id="zoom" name="zoom" value="{{.Zoom}}">
+                                <small class="text-muted">Regular mode: 0-21 (zoom level), Nearby mode: 51+ (meters)</small>
                             </div>
                             <div class="form-group">
                                 <label for="latitude">Latitude:</label>
@@ -87,12 +88,31 @@
                         <summary>Advanced Options</summary>
                         <fieldset>
                             <div class="form-group">
-                                <label for="fastmode">Fast Mode (BETA):</label>
-                                <input type="checkbox" id="fastmode" name="fastmode" {{if .FastMode}}checked{{end}}>
+                                <label>Search Mode:</label>
+                                <div class="mode-selector">
+                                    <label class="mode-option">
+                                        <input type="radio" name="mode" value="regular" {{if not .FastMode}}{{if not .NearbyMode}}checked{{end}}{{end}}>
+                                        <span>Regular Mode</span>
+                                    </label>
+                                    <label class="mode-option">
+                                        <input type="radio" name="mode" value="fast" {{if .FastMode}}checked{{end}}>
+                                        <span>Fast Mode (BETA)</span>
+                                    </label>
+                                    <label class="mode-option">
+                                        <input type="radio" name="mode" value="nearby" {{if .NearbyMode}}checked{{end}}>
+                                        <span>Nearby Mode</span>
+                                    </label>
+                                </div>
+                                <small class="text-muted">
+                                    <strong>Regular:</strong> Standard search |
+                                    <strong>Fast:</strong> HTTP-based (no browser) |
+                                    <strong>Nearby:</strong> Proximity search (requires lat/lon, zoom 51m+)
+                                </small>
                             </div>
                             <div class="form-group">
-                                    <label for="radius">Radius (BETA):</label>
+                                    <label for="radius">Radius:</label>
                                     <input type="number" id="radius" name="radius" value="{{.Radius}}">
+                                    <small class="text-muted">Filter radius in meters (default: 10000)</small>
                             </div>
                             <div class="form-group">
                                 <label for="depth">Depth:</label>
@@ -105,6 +125,12 @@
                             <div class="form-group">
                                 <label for="maxtime">Max job time:</label>
                                 <input type="text" id="maxtime" name="maxtime" value="{{.MaxTime}}">
+                                <small class="text-muted">e.g., 10m, 30m, 1h</small>
+                            </div>
+                            <div class="form-group">
+                                <label for="exitoninactivity">Exit on inactivity:</label>
+                                <input type="text" id="exitoninactivity" name="exitoninactivity" value="{{.ExitOnInactivity}}">
+                                <small class="text-muted">Exit after no activity (e.g., 5m, 10m, 15m). Leave empty to use Max job time.</small>
                             </div>
                         </fieldset>
                     </details>
