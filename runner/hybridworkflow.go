@@ -20,6 +20,7 @@ import (
     "bufio"
     "bytes"
     "context"
+    "errors"
     "fmt"
     "io"
     "math"
@@ -223,7 +224,12 @@ func RunHybridFile(ctx context.Context, cfg *Config, input io.Reader, writers []
     exitMonitor.SetCancelFunc(cancel)
     go exitMonitor.Run(ctx2)
 
-    if err := app.Start(ctx2, nearbyJobs...); err != nil { return err }
+    if err := app.Start(ctx2, nearbyJobs...); err != nil {
+        // Context cancellation is expected when exiter completes all jobs - not an error
+        if !errors.Is(err, context.Canceled) {
+            return err
+        }
+    }
     Telemetry().Send(ctx, tlmt.NewEvent("hybrid_runner", map[string]any{"seeds": len(seeds), "nearby_jobs": len(nearbyJobs)}))
     return nil
 }
@@ -262,6 +268,11 @@ func RunHybridWeb(ctx context.Context, cfg *Config, keywords []string, writers [
     if err != nil { return err }
     defer app.Close()
     ctx2, cancel := context.WithCancel(ctx); defer cancel(); exitMonitor.SetCancelFunc(cancel); go exitMonitor.Run(ctx2)
-    if err := app.Start(ctx2, nearbyJobs...); err != nil { return err }
+    if err := app.Start(ctx2, nearbyJobs...); err != nil {
+        // Context cancellation is expected when exiter completes all jobs - not an error
+        if !errors.Is(err, context.Canceled) {
+            return err
+        }
+    }
     return nil
 }
