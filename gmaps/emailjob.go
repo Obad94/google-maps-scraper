@@ -68,15 +68,17 @@ func (j *EmailExtractJob) Process(ctx context.Context, resp *scrapemate.Response
 
 	log := scrapemate.GetLoggerFromContext(ctx)
 
-	log.Info("Processing email job", "url", j.URL)
+	log.Info("Processing email job", "jobid", j.ID, "url", j.URL)
 
-	// if html fetch failed just return
+	// if html fetch failed just return the entry without email
 	if resp.Error != nil {
+		log.Info("Email extraction failed due to fetch error", "jobid", j.ID, "error", resp.Error)
 		return j.Entry, nil, nil
 	}
 
 	doc, ok := resp.Document.(*goquery.Document)
 	if !ok {
+		log.Info("Email extraction skipped - invalid document", "jobid", j.ID)
 		return j.Entry, nil, nil
 	}
 
@@ -86,6 +88,12 @@ func (j *EmailExtractJob) Process(ctx context.Context, resp *scrapemate.Response
 	}
 
 	j.Entry.Emails = emails
+
+	if len(emails) > 0 {
+		log.Info("Extracted emails", "jobid", j.ID, "count", len(emails))
+	} else {
+		log.Info("No emails found", "jobid", j.ID)
+	}
 
 	return j.Entry, nil, nil
 }
@@ -97,10 +105,15 @@ func (j *EmailExtractJob) ProcessOnFetchError() bool {
 func (j *EmailExtractJob) BrowserActions(ctx context.Context, page playwright.Page) scrapemate.Response {
 	var resp scrapemate.Response
 
+	log := scrapemate.GetLoggerFromContext(ctx)
+	log.Info("Processing email job", "jobid", j.ID, "url", j.GetURL())
+
 	pageResponse, err := page.Goto(j.GetURL(), playwright.PageGotoOptions{
 		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
+		Timeout:   playwright.Float(20000), // 20 second timeout for website loading
 	})
 	if err != nil {
+		log.Info("Email extraction navigation failed", "jobid", j.ID, "error", err)
 		resp.Error = err
 
 		return resp
@@ -113,6 +126,7 @@ func (j *EmailExtractJob) BrowserActions(ctx context.Context, page playwright.Pa
 		Timeout:   playwright.Float(defaultTimeout),
 	})
 	if err != nil {
+		log.Info("Email extraction URL wait failed", "jobid", j.ID, "error", err)
 		resp.Error = err
 
 		return resp
@@ -128,6 +142,7 @@ func (j *EmailExtractJob) BrowserActions(ctx context.Context, page playwright.Pa
 
 	body, err := page.Content()
 	if err != nil {
+		log.Info("Email extraction content retrieval failed", "jobid", j.ID, "error", err)
 		resp.Error = err
 
 		return resp

@@ -98,13 +98,23 @@ func (j *PlaceJob) Process(_ context.Context, resp *scrapemate.Response) (any, [
 		}
 	}()
 
+	// Check if there was an error during browser action (e.g., APP_INITIALIZATION_STATE not found)
+	if resp.Error != nil {
+		// Don't create email job if place extraction failed
+		// Mark as not used in results so it won't be written
+		j.UsageInResultststs = false
+		return nil, nil, resp.Error
+	}
+
 	raw, ok := resp.Meta["json"].([]byte)
 	if !ok {
+		j.UsageInResultststs = false
 		return nil, nil, fmt.Errorf("could not convert to []byte")
 	}
 
 	entry, err := EntryFromJSON(raw)
 	if err != nil {
+		j.UsageInResultststs = false
 		return nil, nil, err
 	}
 
@@ -163,6 +173,7 @@ func (j *PlaceJob) BrowserActions(ctx context.Context, page playwright.Page) scr
 
 	pageResponse, err := page.Goto(j.GetURL(), playwright.PageGotoOptions{
 		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
+		Timeout:   playwright.Float(30000), // Increased timeout to 30 seconds
 	})
 	if err != nil {
 		resp.Error = err
@@ -172,7 +183,7 @@ func (j *PlaceJob) BrowserActions(ctx context.Context, page playwright.Page) scr
 
 	clickRejectCookiesIfRequired(page)
 
-	const defaultTimeout = 5000
+	const defaultTimeout = 10000 // Increased from 5000 to 10000
 
 	err = page.WaitForURL(page.URL(), playwright.PageWaitForURLOptions{
 		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
@@ -183,6 +194,10 @@ func (j *PlaceJob) BrowserActions(ctx context.Context, page playwright.Page) scr
 
 		return resp
 	}
+
+	// Additional wait for dynamic content to fully load
+	// Google Maps heavily relies on JavaScript, so give it more time
+	time.Sleep(2 * time.Second)
 
 	resp.URL = pageResponse.URL()
 	resp.StatusCode = pageResponse.Status()
@@ -229,21 +244,52 @@ func (j *PlaceJob) BrowserActions(ctx context.Context, page playwright.Page) scr
 }
 
 func (j *PlaceJob) extractJSON(page playwright.Page) ([]byte, error) {
-	rawI, err := page.Evaluate(js)
-	if err != nil {
-		return nil, err
+	// Retry mechanism: Google Maps may take time to populate APP_INITIALIZATION_STATE
+	// Increased retries and delay to handle slower loading pages
+	const maxRetries = 5
+	const initialDelay = time.Second * 2
+	const maxDelay = time.Second * 5
+
+	var rawI interface{}
+	var err error
+
+	for i := 0; i < maxRetries; i++ {
+		// Wait before attempting (progressive backoff)
+		if i > 0 {
+			delay := time.Duration(i) * initialDelay
+			if delay > maxDelay {
+				delay = maxDelay
+			}
+			time.Sleep(delay)
+		}
+
+		rawI, err = page.Evaluate(js)
+		if err != nil {
+			// If JavaScript evaluation fails, the page structure may have changed
+			// Try to wait and retry instead of failing immediately
+			if i < maxRetries-1 {
+				continue
+			}
+			return nil, fmt.Errorf("failed to evaluate JavaScript: %w", err)
+		}
+
+		// Check if result is valid
+		if rawI != nil {
+			if raw, ok := rawI.(string); ok && raw != "" {
+				// Success! Got valid string data
+				const prefix = `)]}'`
+				raw = strings.TrimSpace(strings.TrimPrefix(raw, prefix))
+				return []byte(raw), nil
+			}
+		}
 	}
 
-	raw, ok := rawI.(string)
-	if !ok {
-		return nil, fmt.Errorf("could not convert to string")
+	// All retries exhausted
+	if rawI == nil {
+		return nil, fmt.Errorf("APP_INITIALIZATION_STATE not found on page after %d retries (Google Maps page structure may have changed or page didn't load properly)", maxRetries)
 	}
 
-	const prefix = `)]}'`
-
-	raw = strings.TrimSpace(strings.TrimPrefix(raw, prefix))
-
-	return []byte(raw), nil
+	return nil, fmt.Errorf("could not convert to string (got type %T) after %d retries - page structure may have changed", rawI, maxRetries)
 }
 
 func (j *PlaceJob) getReviewCount(data []byte) int {
@@ -268,15 +314,30 @@ func ctxWait(ctx context.Context, dur time.Duration) {
 
 const js = `
 function parse() {
-	const appState = window.APP_INITIALIZATION_STATE[3];
-	if (!appState) {
+	// Validate APP_INITIALIZATION_STATE exists and is properly structured
+	if (!window.APP_INITIALIZATION_STATE) {
 		return null;
 	}
+	
+	if (!Array.isArray(window.APP_INITIALIZATION_STATE) || window.APP_INITIALIZATION_STATE.length < 4) {
+		return null;
+	}
+	
+	const appState = window.APP_INITIALIZATION_STATE[3];
+	if (!appState || typeof appState !== 'object') {
+		return null;
+	}
+	
 	const keys = Object.keys(appState);
+	if (keys.length === 0) {
+		return null;
+	}
+	
 	const key = keys[0];
-	if (appState[key] && appState[key][6]) {
+	if (appState[key] && Array.isArray(appState[key]) && appState[key].length > 6 && appState[key][6]) {
 		return appState[key][6];
 	}
+	
 	return null;
 }
 `

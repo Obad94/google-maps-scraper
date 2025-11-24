@@ -319,7 +319,14 @@ func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) error {
 		tmpCfg.Email = job.Data.Email
 		tmpCfg.MaxDepth = job.Data.Depth
 		tmpCfg.LangCode = job.Data.Lang
-		// Concurrency, proxies etc inherited from base config
+		// Override concurrency if job-specific value is set
+		if job.Data.Concurrency > 0 {
+			tmpCfg.Concurrency = job.Data.Concurrency
+			log.Printf("job %s: using job-specific concurrency for hybrid mode: %d", job.ID, tmpCfg.Concurrency)
+		} else {
+			log.Printf("job %s: using global config concurrency for hybrid mode: %d", job.ID, tmpCfg.Concurrency)
+		}
+		// Proxies etc inherited from base config
 		if err := runner.RunHybridWeb(ctx, &tmpCfg, job.Data.Keywords, writers); err != nil {
 			job.Status = web.StatusFailed
 			jobErr = err
@@ -457,8 +464,17 @@ func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) error {
 }
 
 func (w *webrunner) setupMate(_ context.Context, writer io.Writer, job *web.Job) (*scrapemateapp.ScrapemateApp, error) {
+	// Use job-specific concurrency if set, otherwise use global config
+	concurrency := w.cfg.Concurrency
+	if job.Data.Concurrency > 0 {
+		concurrency = job.Data.Concurrency
+		log.Printf("job %s: using job-specific concurrency: %d", job.ID, concurrency)
+	} else {
+		log.Printf("job %s: using global config concurrency: %d", job.ID, concurrency)
+	}
+
 	opts := []func(*scrapemateapp.Config) error{
-		scrapemateapp.WithConcurrency(w.cfg.Concurrency),
+		scrapemateapp.WithConcurrency(concurrency),
 	}
 
 	// Only use ExitOnInactivity if user explicitly sets it

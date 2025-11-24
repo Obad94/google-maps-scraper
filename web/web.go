@@ -222,6 +222,7 @@ type formData struct {
 	Depth            int
 	Email            bool
 	Proxies          []string
+	Concurrency      int
 }
 
 type ctxKey string
@@ -286,6 +287,7 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 		Lon:              "0",
 		Depth:            10,
 		Email:            false,
+		Concurrency:      0,
 	}
 
 	_ = tmpl.Execute(w, data)
@@ -399,6 +401,20 @@ func (s *Server) scrape(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Parse concurrency (optional, defaults to 0 which means use global config)
+	concurrencyStr := r.Form.Get("concurrency")
+	if concurrencyStr != "" {
+		newJob.Data.Concurrency, err = strconv.Atoi(concurrencyStr)
+		if err != nil {
+			http.Error(w, "invalid concurrency", http.StatusUnprocessableEntity)
+			return
+		}
+		if newJob.Data.Concurrency < 0 {
+			http.Error(w, "concurrency must be greater than 0 or leave empty for auto", http.StatusUnprocessableEntity)
+			return
+		}
+	}
+
 	newJob.Data.Email = r.Form.Get("email") == "on"
 
 	proxies := strings.Split(r.Form.Get("proxies"), "\n")
@@ -418,7 +434,7 @@ func (s *Server) scrape(w http.ResponseWriter, r *http.Request) {
 	log.Printf("  - Keywords: %v", newJob.Data.Keywords)
 	log.Printf("  - Mode: NearbyMode=%v, FastMode=%v, HybridMode=%v", newJob.Data.NearbyMode, newJob.Data.FastMode, newJob.Data.HybridMode)
 	log.Printf("  - Location: lat=%s, lon=%s, zoom=%d, radius=%dm", newJob.Data.Lat, newJob.Data.Lon, newJob.Data.Zoom, newJob.Data.Radius)
-	log.Printf("  - Scraping: depth=%d, email=%v, lang=%s", newJob.Data.Depth, newJob.Data.Email, newJob.Data.Lang)
+	log.Printf("  - Scraping: depth=%d, email=%v, lang=%s, concurrency=%d", newJob.Data.Depth, newJob.Data.Email, newJob.Data.Lang, newJob.Data.Concurrency)
 	log.Printf("  - Timeouts: MaxTime=%v, ExitOnInactivity=%v", newJob.Data.MaxTime, newJob.Data.ExitOnInactivity)
 	log.Printf("  - Proxies: %d configured", len(newJob.Data.Proxies))
 

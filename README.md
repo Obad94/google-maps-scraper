@@ -856,9 +856,9 @@ MSYS_NO_PATHCONV=1 docker run --rm --shm-size=1g \
   -geo "21.030625,105.819332" \
   -input /gmapsdata/nearby-categories.txt \
   -results /gmapsdata/hybrid_results.csv \
-  -zoom 15 \
+  -zoom 21 \
   -depth 2 \
   -email \
-  -radius 2000 \
-  -c 10 \
+  -radius 20000 \
+  -c 5 \
   -exit-on-inactivity 3m

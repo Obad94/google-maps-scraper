@@ -76,6 +76,7 @@ type JobData struct {
 	MaxTime            time.Duration `json:"max_time"`
 	ExitOnInactivity   time.Duration `json:"exit_on_inactivity"`
 	Proxies            []string      `json:"proxies"`
+	Concurrency        int           `json:"concurrency"`
 }
 
 func (d *JobData) Validate() error {
