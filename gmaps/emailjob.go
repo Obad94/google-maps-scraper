@@ -25,7 +25,7 @@ type EmailExtractJob struct {
 func NewEmailJob(parentID string, entry *Entry, opts ...EmailExtractJobOptions) *EmailExtractJob {
 	const (
 		defaultPrio       = scrapemate.PriorityHigh
-		defaultMaxRetries = 0
+		defaultMaxRetries = 2 // Retry up to 2 times for transient errors (increased from 0)
 	)
 
 	job := EmailExtractJob{
@@ -110,10 +110,24 @@ func (j *EmailExtractJob) BrowserActions(ctx context.Context, page playwright.Pa
 
 	pageResponse, err := page.Goto(j.GetURL(), playwright.PageGotoOptions{
 		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
-		Timeout:   playwright.Float(20000), // 20 second timeout for website loading
+		Timeout:   playwright.Float(30000), // 30 second timeout for website loading (increased from 20s)
 	})
 	if err != nil {
-		log.Info("Email extraction navigation failed", "jobid", j.ID, "error", err)
+		// Distinguish between permanent and temporary failures
+		errorStr := err.Error()
+		isPermanentError := strings.Contains(errorStr, "ERR_NAME_NOT_RESOLVED") ||
+			strings.Contains(errorStr, "ERR_CONNECTION_REFUSED") ||
+			strings.Contains(errorStr, "ERR_ADDRESS_UNREACHABLE") ||
+			strings.Contains(errorStr, "SSL") ||
+			strings.Contains(errorStr, "ERR_CERT_")
+
+		if isPermanentError {
+			log.Info("Email extraction failed - permanent error (DNS/SSL/connection refused)", "jobid", j.ID, "error", err)
+			// Set MaxRetries to 0 for this specific job to avoid wasting retries
+			j.MaxRetries = 0
+		} else {
+			log.Info("Email extraction navigation failed - may be retryable", "jobid", j.ID, "error", err)
+		}
 		resp.Error = err
 
 		return resp

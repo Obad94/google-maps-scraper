@@ -162,14 +162,37 @@ func (e *Entry) IsWebsiteValidForEmail() bool {
 		return false
 	}
 
-	needles := []string{
-		"facebook",
-		"instragram",
-		"twitter",
+	// Parse URL to validate it's well-formed
+	parsedURL, err := url.Parse(e.WebSite)
+	if err != nil {
+		return false
 	}
 
+	// Check if URL has a valid scheme (http or https)
+	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+		return false
+	}
+
+	// Check if URL has a valid host
+	if parsedURL.Host == "" {
+		return false
+	}
+
+	// Filter out social media and other platforms where email extraction is not useful
+	needles := []string{
+		"facebook",
+		"instragram", // keeping the typo for backward compatibility
+		"instagram",
+		"twitter",
+		"linkedin",
+		"youtube",
+		"tiktok",
+		"pinterest",
+	}
+
+	lowerWebsite := strings.ToLower(e.WebSite)
 	for i := range needles {
-		if strings.Contains(e.WebSite, needles[i]) {
+		if strings.Contains(lowerWebsite, needles[i]) {
 			return false
 		}
 	}
