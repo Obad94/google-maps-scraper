@@ -319,6 +319,7 @@ func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) error {
 		tmpCfg.Email = job.Data.Email
 		tmpCfg.MaxDepth = job.Data.Depth
 		tmpCfg.LangCode = job.Data.Lang
+		tmpCfg.ExitOnInactivityDuration = job.Data.ExitOnInactivity
 		// Override concurrency if job-specific value is set
 		if job.Data.Concurrency > 0 {
 			tmpCfg.Concurrency = job.Data.Concurrency

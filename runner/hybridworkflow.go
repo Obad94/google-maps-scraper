@@ -323,14 +323,23 @@ func runHybridNormalPhase(ctx context.Context, queries []string, cfg *Config, wr
         scrapemateapp.WithConcurrency(cfg.Concurrency),
     }
 
+    // Calculate smart exit-on-inactivity timeout based on depth
+    // This ensures phase completes automatically even if exiter doesn't detect completion
+    minInactivityTimeout := time.Duration(cfg.MaxDepth*4)*time.Second + 2*time.Minute
+
+    var exitOnInactivity time.Duration
     if cfg.ExitOnInactivityDuration > 0 {
-        minInactivityTimeout := time.Duration(cfg.MaxDepth*4)*time.Second + 2*time.Minute
-        exitOnInactivity := cfg.ExitOnInactivityDuration
+        // User provided a value - use it (but enforce minimum)
+        exitOnInactivity = cfg.ExitOnInactivityDuration
         if exitOnInactivity < minInactivityTimeout {
             exitOnInactivity = minInactivityTimeout
         }
-        opts = append(opts, scrapemateapp.WithExitOnInactivity(exitOnInactivity))
+    } else {
+        // No value provided - use smart default to auto-terminate phase when done
+        // Use 2x the minimum to allow for variations in scraping speed
+        exitOnInactivity = minInactivityTimeout * 2
     }
+    opts = append(opts, scrapemateapp.WithExitOnInactivity(exitOnInactivity))
 
     if cfg.Debug {
         opts = append(opts, scrapemateapp.WithJS(scrapemateapp.Headfull(), scrapemateapp.DisableImages()))
@@ -458,14 +467,23 @@ func runHybridInitialNearbyPhase(ctx context.Context, queries []string, cfg *Con
         scrapemateapp.WithConcurrency(cfg.Concurrency),
     }
 
+    // Calculate smart exit-on-inactivity timeout based on depth
+    // This ensures phase completes automatically even if exiter doesn't detect completion
+    minInactivityTimeout := time.Duration(cfg.MaxDepth*4)*time.Second + 2*time.Minute
+
+    var exitOnInactivity time.Duration
     if cfg.ExitOnInactivityDuration > 0 {
-        minInactivityTimeout := time.Duration(cfg.MaxDepth*4)*time.Second + 2*time.Minute
-        exitOnInactivity := cfg.ExitOnInactivityDuration
+        // User provided a value - use it (but enforce minimum)
+        exitOnInactivity = cfg.ExitOnInactivityDuration
         if exitOnInactivity < minInactivityTimeout {
             exitOnInactivity = minInactivityTimeout
         }
-        opts = append(opts, scrapemateapp.WithExitOnInactivity(exitOnInactivity))
+    } else {
+        // No value provided - use smart default to auto-terminate phase when done
+        // Use 2x the minimum to allow for variations in scraping speed
+        exitOnInactivity = minInactivityTimeout * 2
     }
+    opts = append(opts, scrapemateapp.WithExitOnInactivity(exitOnInactivity))
 
     if cfg.Debug {
         opts = append(opts, scrapemateapp.WithJS(scrapemateapp.Headfull(), scrapemateapp.DisableImages()))
@@ -759,17 +777,23 @@ func RunHybridWeb(ctx context.Context, cfg *Config, keywords []string, writers [
 
     opts := []func(*scrapemateapp.Config) error{scrapemateapp.WithConcurrency(cfg.Concurrency)}
 
-    // Apply exit-on-inactivity if configured, with minimum safety timeout based on depth
+    // Calculate smart exit-on-inactivity timeout based on depth
+    // This ensures phase completes automatically even if exiter doesn't detect completion
+    minInactivityTimeout := time.Duration(cfg.MaxDepth*4)*time.Second + 2*time.Minute
+
+    var exitOnInactivity time.Duration
     if cfg.ExitOnInactivityDuration > 0 {
-        minInactivityTimeout := time.Duration(cfg.MaxDepth*4)*time.Second + 2*time.Minute
-        exitOnInactivity := cfg.ExitOnInactivityDuration
+        // User provided a value - use it (but enforce minimum)
+        exitOnInactivity = cfg.ExitOnInactivityDuration
         if exitOnInactivity < minInactivityTimeout {
-            fmt.Fprintf(os.Stderr, "[HYBRID-WEB] Warning: -exit-on-inactivity %v is too short for depth %d. Using minimum %v\n",
-                exitOnInactivity, cfg.MaxDepth, minInactivityTimeout)
             exitOnInactivity = minInactivityTimeout
         }
-        opts = append(opts, scrapemateapp.WithExitOnInactivity(exitOnInactivity))
+    } else {
+        // No value provided - use smart default to auto-terminate phase when done
+        // Use 2x the minimum to allow for variations in scraping speed
+        exitOnInactivity = minInactivityTimeout * 2
     }
+    opts = append(opts, scrapemateapp.WithExitOnInactivity(exitOnInactivity))
 
     if cfg.Debug {
         opts = append(opts, scrapemateapp.WithJS(scrapemateapp.Headfull(), scrapemateapp.DisableImages()))

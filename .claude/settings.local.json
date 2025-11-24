@@ -19,7 +19,9 @@
       "Bash(\"/c/Program Files/Go/bin/go.exe\" build -o google-maps-scraper.exe)",
       "Bash(cmd.exe /c \"go version\")",
       "Bash(cmd.exe /c \"go build -o google-maps-scraper.exe 2>&1\")",
-      "Bash(docker builder prune:*)"
+      "Bash(docker builder prune:*)",
+      "Bash(docker volume:*)",
+      "Bash(docker system:*)"
     ],
     "deny": [],
     "ask": []
