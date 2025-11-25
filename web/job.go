@@ -70,6 +70,7 @@ type JobData struct {
 	FastMode           bool          `json:"fast_mode"`
 	NearbyMode         bool          `json:"nearby_mode"`
 	HybridMode         bool          `json:"hybrid_mode"`
+	BrowserAPIMode     bool          `json:"browserapi_mode"`
 	Radius             int           `json:"radius"`
 	Depth              int           `json:"depth"`
 	Email              bool          `json:"email"`
@@ -103,10 +104,13 @@ func (d *JobData) Validate() error {
 	if d.HybridMode {
 		modeCount++
 	}
+	if d.BrowserAPIMode {
+		modeCount++
+	}
 
 	// Validate mode exclusivity
 	if modeCount > 1 {
-		return errors.New("cannot enable multiple modes (fast, nearby, hybrid) at the same time")
+		return errors.New("cannot enable multiple modes (fast, nearby, hybrid, browserapi) at the same time")
 	}
 
 	// Validate zoom based on mode
@@ -116,9 +120,9 @@ func (d *JobData) Validate() error {
 			return errors.New("zoom must be 51 or greater (meters) in nearby mode")
 		}
 	} else {
-		// In regular, fast, and hybrid modes, zoom is a level (0-21)
+		// In regular, fast, hybrid, and browserapi modes, zoom is a level (0-21)
 		if d.Zoom < 0 || d.Zoom > 21 {
-			return errors.New("zoom must be between 0 and 21 in regular/fast/hybrid mode")
+			return errors.New("zoom must be between 0 and 21 in regular/fast/hybrid/browserapi mode")
 		}
 	}
 

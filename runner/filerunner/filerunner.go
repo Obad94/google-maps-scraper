@@ -75,7 +75,10 @@ func (r *fileRunner) Run(ctx context.Context) (err error) {
 	dedup := deduper.New()
 	exitMonitor := exiter.New()
 
-	if r.cfg.HybridMode {
+	if r.cfg.BrowserAPIMode {
+		// BrowserAPI workflow (Google Places API -> browser scrape -> nearby)
+		return runner.RunBrowserAPIFile(ctx, r.cfg, r.input, r.writers)
+	} else if r.cfg.HybridMode {
 		// New hybrid workflow (fast API -> nearby browser) bypasses mixed-mode seed jobs
 		return runner.RunHybridFile(ctx, r.cfg, r.input, r.writers)
 	} else if r.cfg.NearbyMode {

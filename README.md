@@ -860,5 +860,9 @@ MSYS_NO_PATHCONV=1 docker run --rm --shm-size=1g \
   -depth 2 \
   -email \
   -radius 20000 \
-  -c 5 \
-  -exit-on-inactivity 3m
+  -c 3 \
+  -exit-on-inactivity 3s \
+  -proxies http://vedtjkhs-rotate:evbaa69l1uuv@p.webshare.io:80
+
+
+  MSYS_NO_PATHCONV=1 docker run --rm --shm-size=1g   -v "C:/Users/Obad/Desktop/google-maps-scraper/gmapsdata:/gmapsdata"   -v "${PWD}/.env:/.env"   google-maps-scraper   -BrowserAPI   -geo "21.030625,105.819332"   -input /gmapsdata/nearby-categories.txt   -results /gmapsdata/browserapi_results.csv   -zoom 21   -depth 2   -email   -radius 20000   -c 3   -exit-on-inactivity 1m

@@ -332,13 +332,19 @@ func runHybridNormalPhase(ctx context.Context, queries []string, cfg *Config, wr
         // User provided a value - use it (but enforce minimum)
         exitOnInactivity = cfg.ExitOnInactivityDuration
         if exitOnInactivity < minInactivityTimeout {
+            fmt.Fprintf(os.Stderr, "[HYBRID] Phase 1b: Warning: -exit-on-inactivity %v is too short for depth %d. Using minimum %v\n",
+                exitOnInactivity, cfg.MaxDepth, minInactivityTimeout)
             exitOnInactivity = minInactivityTimeout
+        } else {
+            fmt.Fprintf(os.Stderr, "[HYBRID] Phase 1b: Using exit-on-inactivity: %v\n", exitOnInactivity)
         }
     } else {
         // No value provided - use smart default to auto-terminate phase when done
         // Use 2x the minimum to allow for variations in scraping speed
         exitOnInactivity = minInactivityTimeout * 2
+        fmt.Fprintf(os.Stderr, "[HYBRID] Phase 1b: Using smart default exit-on-inactivity: %v (2x minimum)\n", exitOnInactivity)
     }
+    fmt.Fprintf(os.Stderr, "[HYBRID] Phase 1b: Final exit-on-inactivity timeout set to: %v\n", exitOnInactivity)
     opts = append(opts, scrapemateapp.WithExitOnInactivity(exitOnInactivity))
 
     if cfg.Debug {

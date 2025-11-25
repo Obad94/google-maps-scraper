@@ -287,7 +287,7 @@ func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) error {
 	}
 
 	var mate *scrapemateapp.ScrapemateApp
-	if !job.Data.HybridMode { // hybrid builds its own app internally
+	if !job.Data.HybridMode && !job.Data.BrowserAPIMode { // hybrid and browserapi build their own app internally
 		mate, err = w.setupMate(ctx, outfile, job)
 		if err != nil {
 			job.Status = web.StatusFailed
@@ -335,6 +335,34 @@ func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) error {
 		}
 		job.Status = web.StatusOK
 		return nil // Hybrid completed; normal seedJobs path skipped
+	} else if job.Data.BrowserAPIMode {
+		// Execute BrowserAPI workflow directly (Google Places API -> browser scrape -> nearby)
+		writers := []scrapemate.ResultWriter{csvwriter.NewCsvWriter(csv.NewWriter(outfile))}
+		// Build a temporary config copy with job-specific parameters
+		geo := coords // already constructed from job.Data.Lat/Lon above
+		tmpCfg := *w.cfg
+		tmpCfg.GeoCoordinates = geo
+		tmpCfg.ZoomLevel = job.Data.Zoom
+		tmpCfg.Radius = float64(job.Data.Radius)
+		tmpCfg.Email = job.Data.Email
+		tmpCfg.MaxDepth = job.Data.Depth
+		tmpCfg.LangCode = job.Data.Lang
+		tmpCfg.ExitOnInactivityDuration = job.Data.ExitOnInactivity
+		// Override concurrency if job-specific value is set
+		if job.Data.Concurrency > 0 {
+			tmpCfg.Concurrency = job.Data.Concurrency
+			log.Printf("job %s: using job-specific concurrency for BrowserAPI mode: %d", job.ID, tmpCfg.Concurrency)
+		} else {
+			log.Printf("job %s: using global config concurrency for BrowserAPI mode: %d", job.ID, tmpCfg.Concurrency)
+		}
+		// Proxies etc inherited from base config
+		if err := runner.RunBrowserAPIWeb(ctx, &tmpCfg, job.Data.Keywords, writers); err != nil {
+			job.Status = web.StatusFailed
+			jobErr = err
+			return err
+		}
+		job.Status = web.StatusOK
+		return nil // BrowserAPI completed; normal seedJobs path skipped
 	} else if job.Data.NearbyMode {
 		// Nearby mode: use CreateNearbySearchJobs
 		seedJobs, err = runner.CreateNearbySearchJobs(

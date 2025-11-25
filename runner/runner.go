@@ -80,6 +80,7 @@ type Config struct {
 	FastMode                 bool
 	NearbyMode               bool
 	HybridMode               bool
+	BrowserAPIMode           bool
 	Radius                   float64
 	Addr                     string
 	DisablePageReuse         bool
@@ -231,6 +232,7 @@ func ParseConfig() *Config {
 	flag.BoolVar(&cfg.FastMode, "fast-mode", false, "fast mode (reduced data collection)")
 	flag.BoolVar(&cfg.NearbyMode, "nearby-mode", false, "nearby search mode (right-click search nearby simulation)")
 	flag.BoolVar(&cfg.HybridMode, "hybrid-mode", false, "hybrid mode: runs fast mode first, then nearby search on each result location")
+	flag.BoolVar(&cfg.BrowserAPIMode, "BrowserAPI", false, "browser API mode: uses Google Places API to get nearby places, then scrapes each place and runs nearby search")
 	flag.Float64Var(&cfg.Radius, "radius", 10000, "search radius in meters for filtering results. Default is 10000 meters")
 	flag.StringVar(&cfg.Addr, "addr", ":8080", "address to listen on for web server")
 	flag.BoolVar(&cfg.DisablePageReuse, "disable-page-reuse", false, "disable page reuse in playwright")
