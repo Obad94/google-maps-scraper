@@ -4,3 +4,15 @@ bin
 webdata/
 gmapsdata/
 .env
+Webshare-proxies.txt
+
+# Built executables
+google-maps-scraper
+google-maps-scraper.exe
+*.exe
+
+# Results and data files
+results.csv
+results.json
+*.csv
+*.json

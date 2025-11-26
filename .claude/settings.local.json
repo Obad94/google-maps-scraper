@@ -22,7 +22,11 @@
       "Bash(docker builder prune:*)",
       "Bash(docker volume:*)",
       "Bash(docker system:*)",
-      "Bash(go version:*)"
+      "Bash(go version:*)",
+      "Bash(git stash:*)",
+      "Bash(cmd.exe /c \"where go 2>&1 && go version 2>&1\")",
+      "Bash(cmd.exe /c \"if exist \"\"C:\\Program Files\\Go\\bin\\go.exe\"\" (echo Go found at C:\\Program Files\\Go\\bin\\go.exe && \"\"C:\\Program Files\\Go\\bin\\go.exe\"\" version) else (echo Go not found in default location)\")",
+      "Bash(powershell.exe -Command \"if (Get-Command go -ErrorAction SilentlyContinue) { go version } else { Write-Output ''Go is not installed or not in PATH'' }\")"
     ],
     "deny": [],
     "ask": []

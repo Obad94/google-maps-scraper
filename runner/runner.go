@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"flag"
@@ -189,6 +190,68 @@ func cosDegrees(degrees float64) float64 {
 	return math.Cos(degrees * math.Pi / 180.0)
 }
 
+// parseProxiesFromFile reads a proxy file and returns a slice of proxy URLs
+// Supports two formats:
+// 1. ip:port:username:password (converts to http://username:password@ip:port)
+// 2. protocol://user:pass@host:port (used as-is)
+// File can contain proxies one per line or comma-separated
+func parseProxiesFromFile(filePath string) ([]string, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open proxy file: %w", err)
+	}
+	defer file.Close()
+
+	var proxies []string
+	scanner := bufio.NewScanner(file)
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+
+		// Skip empty lines and comments
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		// Split by comma in case file has comma-separated proxies
+		parts := strings.Split(line, ",")
+		for _, proxy := range parts {
+			proxy = strings.TrimSpace(proxy)
+			if proxy == "" {
+				continue
+			}
+
+			// Check if it's already in URL format (contains ://)
+			if strings.Contains(proxy, "://") {
+				proxies = append(proxies, proxy)
+				continue
+			}
+
+			// Parse ip:port:username:password format
+			colonParts := strings.Split(proxy, ":")
+			if len(colonParts) == 4 {
+				ip := colonParts[0]
+				port := colonParts[1]
+				username := colonParts[2]
+				password := colonParts[3]
+
+				// Convert to http://username:password@ip:port format
+				proxyURL := fmt.Sprintf("http://%s:%s@%s:%s", username, password, ip, port)
+				proxies = append(proxies, proxyURL)
+			} else {
+				// If format doesn't match, log warning but continue
+				fmt.Fprintf(os.Stderr, "Warning: skipping invalid proxy: %s\n", proxy)
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("error reading proxy file: %w", err)
+	}
+
+	return proxies, nil
+}
+
 func ParseConfig() *Config {
 	cfg := Config{}
 
@@ -199,8 +262,8 @@ func ParseConfig() *Config {
 	}
 
 	var (
-		proxies  string
-		zoomStr  string
+		proxies string
+		zoomStr string
 	)
 
 	flag.IntVar(&cfg.Concurrency, "c", min(runtime.NumCPU()/2, 1), "sets the concurrency [default: half of CPU cores]")
@@ -220,7 +283,7 @@ func ParseConfig() *Config {
 	flag.StringVar(&zoomStr, "zoom", "15z", "zoom level (1-21z) or distance in meters (51m+). Examples: '15z', '2000m', '500m'. Auto-detects: 1-21=zoom level, 51+=meters")
 	flag.BoolVar(&cfg.WebRunner, "web", false, "run web server instead of crawling")
 	flag.StringVar(&cfg.DataFolder, "data-folder", "webdata", "data folder for web runner")
-	flag.StringVar(&proxies, "proxies", "", "comma separated list of proxies to use in the format protocol://user:pass@host:port example: socks5://localhost:9050 or http://user:pass@localhost:9050")
+	flag.StringVar(&proxies, "proxies", "", "comma separated list of proxies OR path to file with proxies. Format: protocol://user:pass@host:port (e.g., http://user:pass@host:port)")
 	flag.BoolVar(&cfg.AwsLamdbaRunner, "aws-lambda", false, "run as AWS Lambda function")
 	flag.BoolVar(&cfg.AwsLambdaInvoker, "aws-lambda-invoker", false, "run as AWS Lambda invoker")
 	flag.StringVar(&cfg.FunctionName, "function-name", "", "AWS Lambda function name")
@@ -288,8 +351,21 @@ func ParseConfig() *Config {
 		panic("Dsn must be provided when using ProduceOnly")
 	}
 
+	// Parse proxies from command line flag or file
 	if proxies != "" {
-		cfg.Proxies = strings.Split(proxies, ",")
+		// Check if it's a file path
+		if _, err := os.Stat(proxies); err == nil {
+			// It's a file, parse it
+			fileProxies, err := parseProxiesFromFile(proxies)
+			if err != nil {
+				panic(fmt.Sprintf("Failed to parse proxy file: %v", err))
+			}
+			cfg.Proxies = fileProxies
+			fmt.Fprintf(os.Stderr, "Loaded %d proxies from file: %s\n", len(fileProxies), proxies)
+		} else {
+			// It's a comma-separated string
+			cfg.Proxies = strings.Split(proxies, ",")
+		}
 	}
 
 	if cfg.AwsAccessKey != "" && cfg.AwsSecretKey != "" && cfg.AwsRegion != "" {

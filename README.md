@@ -377,6 +377,113 @@ Matsuhisa Athens #!#MyIDentifier
 
 ## Quickstart
 
+### Local Setup (Without Docker)
+
+Running directly on your machine with Go installed is the recommended approach for development and doesn't require Docker.
+
+> 📖 **For detailed setup instructions, troubleshooting, and advanced configuration, see [SETUP_LOCAL.md](SETUP_LOCAL.md)**
+
+#### Prerequisites
+- **Go 1.23.0 or higher** installed ([Download Go](https://go.dev/dl/))
+- **Git** installed
+
+#### Quick Setup (Automated)
+
+We provide setup scripts that automate the entire process:
+
+**Windows (PowerShell):**
+```powershell
+.\setup.ps1
+```
+
+**Linux/Mac:**
+```bash
+chmod +x setup.sh
+./setup.sh
+```
+
+The script will:
+1. Check if Go is installed
+2. Download all dependencies
+3. Build the application
+4. Install Playwright and Chromium
+
+#### Manual Setup Steps
+
+If you prefer to set up manually:
+
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/gosom/google-maps-scraper.git
+   cd google-maps-scraper
+   ```
+
+2. **Download Go dependencies**
+   ```bash
+   go mod download
+   ```
+
+3. **Build the application**
+
+   **Windows (PowerShell):**
+   ```powershell
+   go build -o google-maps-scraper.exe
+   ```
+
+   **Linux/Mac:**
+   ```bash
+   go build -o google-maps-scraper
+   ```
+
+4. **Install Playwright and Chromium** (one-time setup)
+
+   **Windows (PowerShell):**
+   ```powershell
+   $env:PLAYWRIGHT_INSTALL_ONLY="1"
+   .\google-maps-scraper.exe
+   ```
+
+   **Linux/Mac:**
+   ```bash
+   PLAYWRIGHT_INSTALL_ONLY=1 ./google-maps-scraper
+   ```
+
+   This will download and install Chromium browser needed for scraping. It only needs to be done once.
+
+5. **Run the scraper**
+
+   **Windows:**
+   ```powershell
+   .\google-maps-scraper.exe -input example-queries.txt -results results.csv -exit-on-inactivity 3m
+   ```
+
+   **Linux/Mac:**
+   ```bash
+   ./google-maps-scraper -input example-queries.txt -results results.csv -exit-on-inactivity 3m
+   ```
+
+6. **Run the Web UI**
+
+   **Windows:**
+   ```powershell
+   mkdir gmapsdata
+   .\google-maps-scraper.exe -web -data-folder gmapsdata
+   ```
+
+   **Linux/Mac:**
+   ```bash
+   mkdir -p gmapsdata
+   ./google-maps-scraper -web -data-folder gmapsdata
+   ```
+
+   Then open http://localhost:8080 in your browser.
+
+**Notes:**
+- If you want to extract emails, add the `-email` parameter
+- For extra reviews (up to ~300), add the `-extra-reviews` parameter
+- Results will be written to the specified file as they arrive
+- The first run may take a bit longer as it sets up Playwright
+
 ### Using docker:
 
 ```
@@ -395,22 +502,15 @@ output instead of CSV.
 
 ### On your host
 
-(tested only on Ubuntu 22.04)
+See the comprehensive [Local Setup (Without Docker)](#local-setup-without-docker) section above for detailed instructions.
 
-**make sure you use go version 1.25.3**
-
-
-```
-git clone https://github.com/gosom/google-maps-scraper.git
-cd google-maps-scraper
+Quick summary:
+```bash
 go mod download
 go build
-./google-maps-scraper -input example-queries.txt -results restaurants-in-cyprus.csv -exit-on-inactivity 3m
+PLAYWRIGHT_INSTALL_ONLY=1 ./google-maps-scraper  # One-time setup
+./google-maps-scraper -input example-queries.txt -results results.csv -exit-on-inactivity 3m
 ```
-
-Be a little bit patient. In the first run it downloads required libraries.
-
-The results are written when they arrive in the `results` file you specified
 
 **If you want emails use additionally the `-email` parameter**
 
@@ -826,6 +926,10 @@ MSYS_NO_PATHCONV=1 docker run --rm --shm-size=1g \
   -email \
   -zoom 500m
 
+
+
+# For local run:
+./google-maps-scraper -nearby-mode -geo "21.030625,105.819332" -input gmapsdata/categories.txt -results gmapsdata/nearby_results_final.csv -depth 17 -email -zoom 500m  
 
 # API calling to create a new job:
   {
