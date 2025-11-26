@@ -172,8 +172,8 @@ func (j *PlaceJob) BrowserActions(ctx context.Context, page playwright.Page) scr
 	var resp scrapemate.Response
 
 	pageResponse, err := page.Goto(j.GetURL(), playwright.PageGotoOptions{
-		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
-		Timeout:   playwright.Float(30000), // Increased timeout to 30 seconds
+		WaitUntil: playwright.WaitUntilStateNetworkidle,
+		Timeout:   playwright.Float(45000), // Increased timeout to 45 seconds for redirects
 	})
 	if err != nil {
 		resp.Error = err
@@ -183,21 +183,10 @@ func (j *PlaceJob) BrowserActions(ctx context.Context, page playwright.Page) scr
 
 	clickRejectCookiesIfRequired(page)
 
-	const defaultTimeout = 10000 // Increased from 5000 to 10000
-
-	err = page.WaitForURL(page.URL(), playwright.PageWaitForURLOptions{
-		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
-		Timeout:   playwright.Float(defaultTimeout),
-	})
-	if err != nil {
-		resp.Error = err
-
-		return resp
-	}
-
-	// Additional wait for dynamic content to fully load
-	// Google Maps heavily relies on JavaScript, so give it more time
-	time.Sleep(2 * time.Second)
+	// Additional wait for dynamic content to fully load after redirect
+	// Google Maps heavily relies on JavaScript and may redirect from place_id URL
+	// Give it more time to populate APP_INITIALIZATION_STATE
+	time.Sleep(3 * time.Second)
 
 	resp.URL = pageResponse.URL()
 	resp.StatusCode = pageResponse.Status()

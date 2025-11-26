@@ -35,7 +35,8 @@ type placeSeed struct {
 
 // runBrowserAPIPhase1 executes Phase 1: Call Google Places API to get Place IDs
 // Returns place URLs and IDs for Phase 2 browser scraping
-func runBrowserAPIPhase1(ctx context.Context, queries []string, cfg *Config) ([]placeSeed, error) {
+// Uses deduper to prevent scraping duplicate Place IDs
+func runBrowserAPIPhase1(ctx context.Context, queries []string, cfg *Config, dedup deduper.Deduper) ([]placeSeed, error) {
 	if cfg.GeoCoordinates == "" {
 		return nil, fmt.Errorf("geo coordinates are required in BrowserAPI mode")
 	}
@@ -95,15 +96,25 @@ func runBrowserAPIPhase1(ctx context.Context, queries []string, cfg *Config) ([]
 		fmt.Fprintf(os.Stderr, "[BROWSERAPI] Found %d places for category '%s' (%d API requests)\n",
 			len(places), query, requestCount)
 
-		// Convert API results to placeSeeds
+		// Convert API results to placeSeeds with deduplication
+		duplicatesSkipped := 0
 		for _, place := range places {
 			if place.ID != "" {
-				allPlaces = append(allPlaces, placeSeed{
-					Category: query,
-					PlaceID:  place.ID,
-					PlaceURL: gmaps.PlaceIDToURL(place.ID),
-				})
+				// Check if this Place ID has already been seen
+				if dedup == nil || dedup.AddIfNotExists(ctx, place.ID) {
+					allPlaces = append(allPlaces, placeSeed{
+						Category: query,
+						PlaceID:  place.ID,
+						PlaceURL: gmaps.PlaceIDToURL(place.ID),
+					})
+				} else {
+					duplicatesSkipped++
+				}
 			}
+		}
+		if duplicatesSkipped > 0 {
+			fmt.Fprintf(os.Stderr, "[BROWSERAPI] Skipped %d duplicate Place IDs for category '%s'\n",
+				duplicatesSkipped, query)
 		}
 	}
 
@@ -118,7 +129,8 @@ func runBrowserAPIPhase1(ctx context.Context, queries []string, cfg *Config) ([]
 // runBrowserAPIPhase2 executes Phase 2: Scrape each Place URL to get full details
 // Uses PlaceJob to extract all information and coordinates
 // Returns seeds for Phase 3 nested nearby search
-func runBrowserAPIPhase2(ctx context.Context, places []placeSeed, cfg *Config, writers []scrapemate.ResultWriter) ([]hybridSeed, error) {
+// Deduper is passed through but deduplication already happened in Phase 1
+func runBrowserAPIPhase2(ctx context.Context, places []placeSeed, cfg *Config, writers []scrapemate.ResultWriter, dedup deduper.Deduper) ([]hybridSeed, error) {
 	if len(places) == 0 {
 		return nil, nil
 	}
@@ -260,9 +272,12 @@ func RunBrowserAPIFile(ctx context.Context, cfg *Config, input io.Reader, writer
 	fmt.Fprintf(os.Stderr, "[BROWSERAPI] Depth: %d, Zoom: %d\n", cfg.MaxDepth, cfg.ZoomLevel)
 	fmt.Fprintf(os.Stderr, "========================================\n\n")
 
-	// Phase 1: Call Python script to get Place IDs from Google Places API
+	// Create shared deduper for all phases to prevent duplicate scraping
+	dedup := deduper.New()
+
+	// Phase 1: Call Google Places API to get Place IDs (with deduplication)
 	fmt.Fprintf(os.Stderr, "[BROWSERAPI] Phase 1: Fetching places from Google Places API...\n")
-	placeSeeds, err := runBrowserAPIPhase1(ctx, queries, cfg)
+	placeSeeds, err := runBrowserAPIPhase1(ctx, queries, cfg, dedup)
 	if err != nil {
 		return fmt.Errorf("Phase 1 (Google Places API) failed: %w", err)
 	}
@@ -274,7 +289,7 @@ func RunBrowserAPIFile(ctx context.Context, cfg *Config, input io.Reader, writer
 
 	// Phase 2: Scrape each Place URL to get full details and coordinates
 	fmt.Fprintf(os.Stderr, "[BROWSERAPI] Phase 2: Scraping place details...\n")
-	locationSeeds, err := runBrowserAPIPhase2(ctx, placeSeeds, cfg, writers)
+	locationSeeds, err := runBrowserAPIPhase2(ctx, placeSeeds, cfg, writers, dedup)
 	if err != nil {
 		return fmt.Errorf("Phase 2 (Place Scraping) failed: %w", err)
 	}
@@ -292,7 +307,7 @@ func RunBrowserAPIFile(ctx context.Context, cfg *Config, input io.Reader, writer
 	fmt.Fprintf(os.Stderr, "========================================\n\n")
 
 	fmt.Fprintf(os.Stderr, "[BROWSERAPI] Phase 3: Creating Nested Nearby Mode jobs for all %d locations...\n", len(locationSeeds))
-	dedup := deduper.New()
+	// Reuse the same deduper from Phase 1 & 2 to prevent re-scraping already-seen places
 	exitMonitor := exiter.New()
 	nestedNearbyJobs := buildHybridNearbyJobs(locationSeeds, cfg, dedup, exitMonitor)
 	fmt.Fprintf(os.Stderr, "[BROWSERAPI] Created %d nested nearby jobs\n", len(nestedNearbyJobs))
@@ -382,9 +397,12 @@ func RunBrowserAPIWeb(ctx context.Context, cfg *Config, keywords []string, write
 	fmt.Fprintf(os.Stderr, "[BROWSERAPI-WEB] Geo: %s, Radius: %.0fm\n", cfg.GeoCoordinates, cfg.Radius)
 	fmt.Fprintf(os.Stderr, "========================================\n\n")
 
-	// Phase 1: Call Python script to get Place IDs from Google Places API
+	// Create shared deduper for all phases to prevent duplicate scraping
+	dedup := deduper.New()
+
+	// Phase 1: Call Google Places API to get Place IDs (with deduplication)
 	fmt.Fprintf(os.Stderr, "[BROWSERAPI-WEB] Phase 1: Fetching places from Google Places API...\n")
-	placeSeeds, err := runBrowserAPIPhase1(ctx, keywords, cfg)
+	placeSeeds, err := runBrowserAPIPhase1(ctx, keywords, cfg, dedup)
 	if err != nil {
 		return fmt.Errorf("Phase 1 (Google Places API) failed: %w", err)
 	}
@@ -396,7 +414,7 @@ func RunBrowserAPIWeb(ctx context.Context, cfg *Config, keywords []string, write
 
 	// Phase 2: Scrape each Place URL to get full details and coordinates
 	fmt.Fprintf(os.Stderr, "[BROWSERAPI-WEB] Phase 2: Scraping place details...\n")
-	locationSeeds, err := runBrowserAPIPhase2(ctx, placeSeeds, cfg, writers)
+	locationSeeds, err := runBrowserAPIPhase2(ctx, placeSeeds, cfg, writers, dedup)
 	if err != nil {
 		return fmt.Errorf("Phase 2 (Place Scraping) failed: %w", err)
 	}
@@ -414,7 +432,7 @@ func RunBrowserAPIWeb(ctx context.Context, cfg *Config, keywords []string, write
 	fmt.Fprintf(os.Stderr, "========================================\n\n")
 
 	fmt.Fprintf(os.Stderr, "[BROWSERAPI-WEB] Phase 3: Creating Nested Nearby Mode jobs for all %d locations...\n", len(locationSeeds))
-	dedup := deduper.New()
+	// Reuse the same deduper from Phase 1 & 2 to prevent re-scraping already-seen places
 	exitMonitor := exiter.New()
 	nestedNearbyJobs := buildHybridNearbyJobs(locationSeeds, cfg, dedup, exitMonitor)
 	fmt.Fprintf(os.Stderr, "[BROWSERAPI-WEB] Created %d nested nearby jobs\n", len(nestedNearbyJobs))
