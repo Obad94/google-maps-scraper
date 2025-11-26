@@ -903,6 +903,8 @@ Then run with your existing command:
 
 docker run -v ${PWD}\gmapsdata:/gmapsdata -p 8080:8080 google-maps-scraper -data-folder /gmapsdata
 
+# For local run
+./google-maps-scraper -data-folder gmapsdata
 
 Powershell:
 docker run --rm --shm-size=1g -v ${PWD}\gmapsdata:/gmapsdata -p 8080:8080 google-maps-scraper -nearby-mode -geo "24.93584,67.13801" -input /gmapsdata/nearby-categories.txt -results /gmapsdata/nearby_results_final.csv -zoom 500m -radius 1000 -depth 20 -email -exit-on-inactivity 10m
