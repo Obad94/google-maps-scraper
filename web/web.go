@@ -62,6 +62,11 @@ func New(svc *Service, addr string) (*Server, error) {
 
 		ans.delete(w, r)
 	})
+	mux.HandleFunc("/map", func(w http.ResponseWriter, r *http.Request) {
+		r = requestWithID(r)
+
+		ans.showMap(w, r)
+	})
 	mux.HandleFunc("/jobs", ans.getJobs)
 	mux.HandleFunc("/", ans.index)
 
@@ -168,6 +173,7 @@ func New(svc *Service, addr string) (*Server, error) {
 		"static/templates/job_row.html",
 		"static/templates/redoc.html",
 		"static/templates/swagger.html",
+		"static/templates/map.html",
 	}
 
 	for _, key := range tmplsKeys {
@@ -283,6 +289,8 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 		Zoom:             15,
 		FastMode:         false,
 		NearbyMode:       false,
+		HybridMode:       false,
+		BrowserAPIMode:   false,
 		Radius:           10000,
 		Lat:              "0",
 		Lon:              "0",
@@ -592,6 +600,78 @@ func (s *Server) retry(w http.ResponseWriter, r *http.Request) {
 	_ = tmpl.Execute(w, job)
 }
 
+func (s *Server) showMap(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
+		return
+	}
+
+	mapID, ok := getIDFromRequest(r)
+	if !ok {
+		http.Error(w, "Invalid ID", http.StatusUnprocessableEntity)
+
+		return
+	}
+
+	// Get job details
+	job, err := s.svc.Get(r.Context(), mapID.String())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+
+		return
+	}
+
+	// Only allow map view for completed jobs
+	if job.Status != StatusOK {
+		http.Error(w, "Map view is only available for completed jobs", http.StatusBadRequest)
+
+		return
+	}
+
+	// Get Google Maps API key from environment
+	apiKey := os.Getenv("GOOGLE_MAPS_API_KEY")
+	if apiKey == "" {
+		http.Error(w, "Google Maps API key not configured. Please set GOOGLE_MAPS_API_KEY environment variable.", http.StatusInternalServerError)
+
+		return
+	}
+
+	// Determine the mode
+	mode := "Normal"
+	if job.Data.FastMode {
+		mode = "Fast Mode"
+	} else if job.Data.NearbyMode {
+		mode = "Nearby Mode"
+	} else if job.Data.HybridMode {
+		mode = "Hybrid Mode"
+	} else if job.Data.BrowserAPIMode {
+		mode = "Browser API Mode"
+	}
+
+	tmpl, ok := s.tmpl["static/templates/map.html"]
+	if !ok {
+		http.Error(w, "missing template", http.StatusInternalServerError)
+
+		return
+	}
+
+	data := struct {
+		JobID   string
+		JobName string
+		Mode    string
+		APIKey  string
+	}{
+		JobID:   job.ID,
+		JobName: job.Name,
+		Mode:    mode,
+		APIKey:  apiKey,
+	}
+
+	w.Header().Set("Content-Type", "text/html")
+	_ = tmpl.Execute(w, data)
+}
+
 type apiError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
@@ -844,12 +924,12 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-XSS-Protection", "1; mode=block")
 		w.Header().Set("Content-Security-Policy",
 			"default-src 'self'; "+
-				"script-src 'self' cdn.redoc.ly cdnjs.cloudflare.com unpkg.com 'unsafe-inline' 'unsafe-eval'; "+
+				"script-src 'self' cdn.redoc.ly cdnjs.cloudflare.com unpkg.com maps.googleapis.com 'unsafe-inline' 'unsafe-eval'; "+
 				"worker-src 'self' blob:; "+
 				"style-src 'self' 'unsafe-inline' fonts.googleapis.com unpkg.com; "+
-				"img-src 'self' data: cdn.redoc.ly; "+
+				"img-src 'self' data: cdn.redoc.ly *.googleapis.com *.gstatic.com maps.gstatic.com *.google.com; "+
 				"font-src 'self' fonts.gstatic.com; "+
-				"connect-src 'self'")
+				"connect-src 'self' *.googleapis.com maps.googleapis.com")
 
 		next.ServeHTTP(w, r)
 	})

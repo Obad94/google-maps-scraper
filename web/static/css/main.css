@@ -210,21 +210,29 @@ th {
     color: white;
 }
 
-.download-button, .delete-button, .retry-button {
+.download-button, .delete-button, .retry-button, .map-button {
     padding: 6px 12px;
     border-radius: 4px;
     font-size: 12px;
     text-decoration: none;
     color: white;
+    margin-right: 8px;
 }
 
 .download-button {
     background-color: var(--color-success);
 }
 
+.map-button {
+    background-color: #4285f4;
+}
+
+.map-button:hover {
+    background-color: #357ae8;
+}
+
 .retry-button {
     background-color: #ff9800;
-    margin-right: 8px;
 }
 
 .retry-button:hover {

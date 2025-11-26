@@ -147,82 +147,84 @@ func (s *Service) GetResults(_ context.Context, id string) ([]gmaps.Entry, error
 			return nil, fmt.Errorf("failed to read csv record: %w", err)
 		}
 
-		if len(record) < 33 {
+		if len(record) < 35 {
 			continue
 		}
 
 		entry := gmaps.Entry{
 			ID:          record[0],
 			Link:        record[1],
-			Title:       record[2],
-			Category:    record[3],
-			Address:     record[4],
-			WebSite:     record[7],
-			Phone:       record[8],
-			PlusCode:    record[9],
-			Cid:         record[15],
-			Status:      record[16],
-			Description: record[17],
-			ReviewsLink: record[18],
-			Thumbnail:   record[19],
-			Timezone:    record[20],
-			PriceRange:  record[21],
-			DataID:      record[22],
+			PlaceID:     record[2],
+			PlaceIDURL:  record[3],
+			Title:       record[4],
+			Category:    record[5],
+			Address:     record[6],
+			WebSite:     record[9],
+			Phone:       record[10],
+			PlusCode:    record[11],
+			Cid:         record[17],
+			Status:      record[18],
+			Description: record[19],
+			ReviewsLink: record[20],
+			Thumbnail:   record[21],
+			Timezone:    record[22],
+			PriceRange:  record[23],
+			DataID:      record[24],
 		}
 
 		// Parse numeric fields
-		if record[10] != "" {
-			entry.ReviewCount, _ = strconv.Atoi(record[10])
-		}
-		if record[11] != "" {
-			entry.ReviewRating, _ = strconv.ParseFloat(record[11], 64)
+		if record[12] != "" {
+			entry.ReviewCount, _ = strconv.Atoi(record[12])
 		}
 		if record[13] != "" {
-			entry.Latitude, _ = strconv.ParseFloat(record[13], 64)
+			entry.ReviewRating, _ = strconv.ParseFloat(record[13], 64)
 		}
-		if record[14] != "" {
-			entry.Longtitude, _ = strconv.ParseFloat(record[14], 64)
+		if record[15] != "" {
+			entry.Latitude, _ = strconv.ParseFloat(record[15], 64)
+		}
+		if record[16] != "" {
+			entry.Longtitude, _ = strconv.ParseFloat(record[16], 64)
 		}
 
 		// Parse JSON fields
-		if record[5] != "" && record[5] != "null" {
-			_ = json.Unmarshal([]byte(record[5]), &entry.OpenHours)
+		if record[7] != "" && record[7] != "null" {
+			_ = json.Unmarshal([]byte(record[7]), &entry.OpenHours)
 		}
-		if record[6] != "" && record[6] != "null" {
-			_ = json.Unmarshal([]byte(record[6]), &entry.PopularTimes)
+		if record[8] != "" && record[8] != "null" {
+			_ = json.Unmarshal([]byte(record[8]), &entry.PopularTimes)
 		}
-		if record[12] != "" && record[12] != "null" {
-			_ = json.Unmarshal([]byte(record[12]), &entry.ReviewsPerRating)
-		}
-		if record[23] != "" && record[23] != "null" {
-			_ = json.Unmarshal([]byte(record[23]), &entry.Images)
-		}
-		if record[24] != "" && record[24] != "null" {
-			_ = json.Unmarshal([]byte(record[24]), &entry.Reservations)
+		if record[14] != "" && record[14] != "null" {
+			_ = json.Unmarshal([]byte(record[14]), &entry.ReviewsPerRating)
 		}
 		if record[25] != "" && record[25] != "null" {
-			_ = json.Unmarshal([]byte(record[25]), &entry.OrderOnline)
+			_ = json.Unmarshal([]byte(record[25]), &entry.Images)
 		}
 		if record[26] != "" && record[26] != "null" {
-			_ = json.Unmarshal([]byte(record[26]), &entry.Menu)
+			_ = json.Unmarshal([]byte(record[26]), &entry.Reservations)
 		}
 		if record[27] != "" && record[27] != "null" {
-			_ = json.Unmarshal([]byte(record[27]), &entry.Owner)
+			_ = json.Unmarshal([]byte(record[27]), &entry.OrderOnline)
 		}
 		if record[28] != "" && record[28] != "null" {
-			_ = json.Unmarshal([]byte(record[28]), &entry.CompleteAddress)
+			_ = json.Unmarshal([]byte(record[28]), &entry.Menu)
 		}
 		if record[29] != "" && record[29] != "null" {
-			_ = json.Unmarshal([]byte(record[29]), &entry.About)
+			_ = json.Unmarshal([]byte(record[29]), &entry.Owner)
 		}
 		if record[30] != "" && record[30] != "null" {
-			_ = json.Unmarshal([]byte(record[30]), &entry.UserReviews)
+			_ = json.Unmarshal([]byte(record[30]), &entry.CompleteAddress)
 		}
 		if record[31] != "" && record[31] != "null" {
-			_ = json.Unmarshal([]byte(record[31]), &entry.UserReviewsExtended)
+			_ = json.Unmarshal([]byte(record[31]), &entry.About)
 		}
 		if record[32] != "" && record[32] != "null" {
-			entry.Emails = strings.Split(record[32], ", ")
+			_ = json.Unmarshal([]byte(record[32]), &entry.UserReviews)
+		}
+		if record[33] != "" && record[33] != "null" {
+			_ = json.Unmarshal([]byte(record[33]), &entry.UserReviewsExtended)
+		}
+		if record[34] != "" && record[34] != "null" {
+			entry.Emails = strings.Split(record[34], ", ")
 		}
 
 		results = append(results, entry)
