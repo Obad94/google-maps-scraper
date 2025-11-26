@@ -970,3 +970,10 @@ MSYS_NO_PATHCONV=1 docker run --rm --shm-size=1g \
 
 
   MSYS_NO_PATHCONV=1 docker run --rm --shm-size=1g   -v "C:/Users/Obad/Desktop/google-maps-scraper/gmapsdata:/gmapsdata"   -v "${PWD}/.env:/.env"   google-maps-scraper   -BrowserAPI   -geo "21.030625,105.819332"   -input /gmapsdata/nearby-categories.txt   -results /gmapsdata/browserapi_results.csv   -zoom 21   -depth 2   -email   -radius 20000   -c 3   -exit-on-inactivity 1m
+
+# Patched jshttp.go to remove the --single-process flag
+$env:GOWORK="off"
+go mod vendor
+# Edit vendor\github.com\gosom\scrapemate\adapters\fetchers\jshttp\jshttp.go
+# Comment out the line: `--single-process`,
+go build -mod=vendor -o google-maps-scraper.exe
