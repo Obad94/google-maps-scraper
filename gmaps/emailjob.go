@@ -2,6 +2,7 @@ package gmaps
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -12,6 +13,9 @@ import (
 	"github.com/mcnijman/go-emailaddress"
 	"github.com/playwright-community/playwright-go"
 )
+
+// Maximum number of emails to extract from a single page to avoid false positives
+const maxEmailsPerPage = 50
 
 type EmailExtractJobOptions func(*EmailExtractJob)
 
@@ -118,11 +122,12 @@ func (j *EmailExtractJob) BrowserActions(ctx context.Context, page playwright.Pa
 		isPermanentError := strings.Contains(errorStr, "ERR_NAME_NOT_RESOLVED") ||
 			strings.Contains(errorStr, "ERR_CONNECTION_REFUSED") ||
 			strings.Contains(errorStr, "ERR_ADDRESS_UNREACHABLE") ||
+			strings.Contains(errorStr, "ERR_TOO_MANY_REDIRECTS") ||
 			strings.Contains(errorStr, "SSL") ||
 			strings.Contains(errorStr, "ERR_CERT_")
 
 		if isPermanentError {
-			log.Info("Email extraction failed - permanent error (DNS/SSL/connection refused)", "jobid", j.ID, "error", err)
+			log.Info("Email extraction failed - permanent error (DNS/SSL/redirect/connection)", "jobid", j.ID, "error", err)
 			// Set MaxRetries to 0 for this specific job to avoid wasting retries
 			j.MaxRetries = 0
 		} else {
@@ -154,6 +159,17 @@ func (j *EmailExtractJob) BrowserActions(ctx context.Context, page playwright.Pa
 		resp.Headers.Add(k, v)
 	}
 
+	// Check for HTTP error status codes (4xx and 5xx)
+	if resp.StatusCode >= 400 {
+		log.Info("Email extraction failed - HTTP error", "jobid", j.ID, "statusCode", resp.StatusCode)
+		resp.Error = fmt.Errorf("status code %d", resp.StatusCode)
+		// Don't retry for 404 (Not Found), 410 (Gone), 403 (Forbidden) - these are permanent
+		if resp.StatusCode == 404 || resp.StatusCode == 410 || resp.StatusCode == 403 {
+			j.MaxRetries = 0
+		}
+		return resp
+	}
+
 	body, err := page.Content()
 	if err != nil {
 		log.Info("Email extraction content retrieval failed", "jobid", j.ID, "error", err)
@@ -173,11 +189,14 @@ func docEmailExtractor(doc *goquery.Document) []string {
 	var emails []string
 
 	doc.Find("a[href^='mailto:']").Each(func(_ int, s *goquery.Selection) {
+		if len(emails) >= maxEmailsPerPage {
+			return
+		}
 		mailto, exists := s.Attr("href")
 		if exists {
 			value := strings.TrimPrefix(mailto, "mailto:")
 			if email, err := getValidEmail(value); err == nil {
-				if !seen[email] {
+				if !seen[email] && isLikelyRealEmail(email) {
 					emails = append(emails, email)
 					seen[email] = true
 				}
@@ -195,13 +214,85 @@ func regexEmailExtractor(body []byte) []string {
 
 	addresses := emailaddress.Find(body, false)
 	for i := range addresses {
-		if !seen[addresses[i].String()] {
-			emails = append(emails, addresses[i].String())
-			seen[addresses[i].String()] = true
+		if len(emails) >= maxEmailsPerPage {
+			break
+		}
+		email := addresses[i].String()
+		if !seen[email] && isLikelyRealEmail(email) {
+			emails = append(emails, email)
+			seen[email] = true
 		}
 	}
 
 	return emails
+}
+
+// isLikelyRealEmail filters out common false positive email patterns
+func isLikelyRealEmail(email string) bool {
+	email = strings.ToLower(email)
+
+	// Filter out common false positive patterns
+	falsePositivePatterns := []string{
+		"@example.com",
+		"@test.com",
+		"@localhost",
+		"@sentry.io",
+		"@wixpress.com",
+		"@email.com",
+		"@domain.com",
+		"@yourdomain",
+		"@placeholder",
+		"noreply@",
+		"no-reply@",
+		"donotreply@",
+		"mailer-daemon@",
+		"postmaster@",
+		"@2x.", // Image naming convention (e.g., icon@2x.png)
+		"@3x.",
+		".png",
+		".jpg",
+		".gif",
+		".svg",
+		".webp",
+	}
+
+	for _, pattern := range falsePositivePatterns {
+		if strings.Contains(email, pattern) {
+			return false
+		}
+	}
+
+	// Filter out emails that look like version strings or hashes
+	parts := strings.Split(email, "@")
+	if len(parts) != 2 {
+		return false
+	}
+
+	localPart := parts[0]
+	// Filter out very long local parts (likely hashes or encoded data)
+	if len(localPart) > 64 {
+		return false
+	}
+
+	// Filter out local parts that are just numbers or hex strings
+	if isHexString(localPart) && len(localPart) > 8 {
+		return false
+	}
+
+	return true
+}
+
+// isHexString checks if a string looks like a hex hash
+func isHexString(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
 }
 
 func getValidEmail(s string) (string, error) {
