@@ -257,6 +257,67 @@ func createSchema(db *sql.DB) error {
 	_, err = db.Exec(`
 		CREATE INDEX IF NOT EXISTS idx_api_keys_status ON api_keys(status)
 	`)
+	if err != nil {
+		return err
+	}
+
+	// Create users table for authentication
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS users (
+			id TEXT PRIMARY KEY,
+			email TEXT NOT NULL UNIQUE,
+			password_hash TEXT NOT NULL,
+			first_name TEXT NOT NULL DEFAULT '',
+			last_name TEXT NOT NULL DEFAULT '',
+			avatar_url TEXT DEFAULT '',
+			email_verified INTEGER NOT NULL DEFAULT 0,
+			status TEXT NOT NULL DEFAULT 'active',
+			created_at INT NOT NULL,
+			updated_at INT NOT NULL,
+			last_login_at INT,
+			deleted_at INT
+		)
+	`)
+	if err != nil {
+		return err
+	}
+
+	// Create index on email for faster lookups
+	_, err = db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)
+	`)
+	if err != nil {
+		return err
+	}
+
+	// Create user_sessions table for session management
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS user_sessions (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL,
+			token_hash TEXT NOT NULL UNIQUE,
+			expires_at INT NOT NULL,
+			created_at INT NOT NULL,
+			last_used_at INT,
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+		)
+	`)
+	if err != nil {
+		return err
+	}
+
+	// Create index on token_hash for faster lookups
+	_, err = db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_user_sessions_token_hash ON user_sessions(token_hash)
+	`)
+	if err != nil {
+		return err
+	}
+
+	// Create index on user_id for faster user session lookups
+	_, err = db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id ON user_sessions(user_id)
+	`)
 
 	return err
 }

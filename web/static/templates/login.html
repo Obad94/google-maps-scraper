@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Google Maps Scraper</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+        .container { background: white; padding: 40px; border-radius: 10px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); max-width: 400px; width: 90%; }
+        h1 { color: #333; margin-bottom: 30px; text-align: center; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 5px; color: #555; font-weight: 500; }
+        input { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px; }
+        input:focus { outline: none; border-color: #667eea; }
+        button { width: 100%; padding: 12px; background: #667eea; color: white; border: none; border-radius: 5px; font-size: 16px; cursor: pointer; margin-top: 10px; }
+        button:hover { background: #5568d3; }
+        .link { text-align: center; margin-top: 20px; color: #666; }
+        .link a { color: #667eea; text-decoration: none; }
+        .link a:hover { text-decoration: underline; }
+        .error { background: #fee; color: #c33; padding: 10px; border-radius: 5px; margin-bottom: 20px; display: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🗺️ Google Maps Scraper</h1>
+        <div class="error" id="error"></div>
+        <form id="loginForm">
+            <div class="form-group">
+                <label>Email</label>
+                <input type="email" name="email" required placeholder="your@email.com">
+            </div>
+            <div class="form-group">
+                <label>Password</label>
+                <input type="password" name="password" required placeholder="••••••••">
+            </div>
+            <button type="submit">Login</button>
+        </form>
+        <div class="link">
+            Don't have an account? <a href="/register">Register</a>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const error = document.getElementById('error');
+            error.style.display = 'none';
+
+            try {
+                const response = await fetch('/api/v1/auth/login', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        email: formData.get('email'),
+                        password: formData.get('password')
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    window.location.href = '/';
+                } else {
+                    error.textContent = data.error || 'Login failed';
+                    error.style.display = 'block';
+                }
+            } catch (err) {
+                error.textContent = 'Connection error. Please try again.';
+                error.style.display = 'block';
+            }
+        });
+    </script>
+</body>
+</html>

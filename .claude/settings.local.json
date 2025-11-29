@@ -34,7 +34,15 @@
       "Bash(timeout 120 ./google-maps-scraper.exe:*)",
       "Bash(timeout 90 ./google-maps-scraper.exe:*)",
       "Bash(./google-maps-scraper.exe:*)",
-      "Bash(cmd.exe /c \"cd /d C:\\Users\\Obad\\Desktop\\google-maps-scraper && \\\"C:\\Program Files\\Go\\bin\\go.exe\\\" build -o google-maps-scraper.exe 2>&1\":*)"
+      "Bash(cmd.exe /c \"cd /d C:\\Users\\Obad\\Desktop\\google-maps-scraper && \\\"C:\\Program Files\\Go\\bin\\go.exe\\\" build -o google-maps-scraper.exe 2>&1\":*)",
+      "Bash(powershell.exe -ExecutionPolicy Bypass -File fix-windows.ps1)",
+      "Bash(del webinit_multi_tenancy.go)",
+      "Bash(powershell \"Remove-Item web\\init_multi_tenancy.go -Force\")",
+      "Bash(powershell \"Get-Content web\\web.go | Select-String -Pattern ''type apiError'' -Context 0,3\")",
+      "Bash(powershell \"(Get-Content auth_handlers.go) -replace ''apiError\\{Error:'', ''apiError{Code: http.StatusBadRequest, Message:'' | Set-Content auth_handlers.go\")",
+      "Bash(powershell \"(Get-Content organization_handlers.go) -replace ''apiError\\{Error:'', ''apiError{Code: http.StatusBadRequest, Message:'' | Set-Content organization_handlers.go\")",
+      "Bash(powershell \"(Get-Content member_handlers.go) -replace ''apiError\\{Error:'', ''apiError{Code: http.StatusBadRequest, Message:'' | Set-Content member_handlers.go\")",
+      "Bash(powershell \"(Get-Content middleware.go) -replace ''apiError\\{Error:'', ''apiError{Code: http.StatusUnauthorized, Message:'' | Set-Content middleware.go\")"
     ],
     "deny": [],
     "ask": []

@@ -15,6 +15,7 @@
                 <a href="/api/docs" target="_blank" rel="noopener noreferrer">API Documentation</a>
                 <a href="/api/swagger" target="_blank" rel="noopener noreferrer">Interactive API</a>
                 <a href="/apikeys">API Keys</a>
+                <button type="button" id="logout-btn" class="logout-btn" onclick="logout()">Logout</button>
             </nav>
         </header>
         <main>
@@ -200,5 +201,20 @@
             </div>
         </main>
     </div>
+    <script>
+        async function logout() {
+            try {
+                const response = await fetch('/api/v1/auth/logout', {
+                    method: 'POST',
+                    credentials: 'same-origin'
+                });
+                // Redirect to login regardless of response
+                window.location.href = '/login';
+            } catch (error) {
+                // Still redirect on error
+                window.location.href = '/login';
+            }
+        }
+    </script>
 </body>
 </html>

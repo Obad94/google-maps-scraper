@@ -21,20 +21,24 @@ type APIKeyRepository interface {
 }
 
 type APIKeySelectParams struct {
-	Status string
-	Limit  int
+	OrganizationID string
+	CreatedBy      string
+	Status         string
+	Limit          int
 }
 
 type APIKey struct {
-	ID          string
-	Name        string
-	Key         string
-	KeyHash     string
-	Status      string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	LastUsedAt  *time.Time
-	ExpiresAt   *time.Time
+	ID             string
+	OrganizationID string
+	CreatedBy      string
+	Name           string
+	Key            string
+	KeyHash        string
+	Status         string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	LastUsedAt     *time.Time
+	ExpiresAt      *time.Time
 }
 
 func (a *APIKey) Validate() error {

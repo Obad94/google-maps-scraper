@@ -16,8 +16,10 @@ const (
 )
 
 type SelectParams struct {
-	Status string
-	Limit  int
+	OrganizationID string
+	CreatedBy      string
+	Status         string
+	Limit          int
 }
 
 type JobRepository interface {
@@ -29,12 +31,14 @@ type JobRepository interface {
 }
 
 type Job struct {
-	ID        string
-	Name      string
-	Date      time.Time
-	UpdatedAt time.Time
-	Status    string
-	Data      JobData
+	ID             string
+	OrganizationID string
+	CreatedBy      string
+	Name           string
+	Date           time.Time
+	UpdatedAt      time.Time
+	Status         string
+	Data           JobData
 }
 
 func (j *Job) Validate() error {

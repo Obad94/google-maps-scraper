@@ -386,6 +386,28 @@ nav a:hover {
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
+/* Logout Button */
+.logout-btn {
+    color: white;
+    font-size: 16px;
+    font-weight: 500;
+    padding: 8px 16px;
+    background-color: var(--color-error);
+    border: 1px solid var(--color-error);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: inline-block;
+    margin-left: 8px;
+}
+
+.logout-btn:hover {
+    background-color: #c62828;
+    border-color: #c62828;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
 /* Import Section Styles */
 .import-section {
     margin-top: 32px;

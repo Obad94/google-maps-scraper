@@ -22,6 +22,7 @@ require (
 	github.com/posthog/posthog-go v1.5.2
 	github.com/shirou/gopsutil/v4 v4.25.4
 	github.com/stretchr/testify v1.10.0
+	golang.org/x/crypto v0.40.0
 	golang.org/x/sync v0.16.0
 	golang.org/x/term v0.33.0
 	modernc.org/sqlite v1.37.0
@@ -248,7 +249,6 @@ require (
 	go.uber.org/mock v0.5.2 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.26.0 // indirect
-	golang.org/x/crypto v0.40.0 // indirect
 	golang.org/x/exp v0.0.0-20250506013437-ce4c2cf36ca6 // indirect
 	golang.org/x/exp/typeparams v0.0.0-20250210185358-939b2ce775ac // indirect
 	golang.org/x/mod v0.25.0 // indirect

@@ -27,6 +27,19 @@ type Server struct {
 	srv        *http.Server
 	svc        *Service
 	apiKeySvc  *APIKeyService
+
+	// Multi-tenancy services
+	authSvc    *AuthService
+	orgSvc     *OrganizationService
+	memberSvc  *MemberService
+
+	// Repositories
+	userRepo       UserRepository
+	orgRepo        OrganizationRepository
+	memberRepo     OrganizationMemberRepository
+	sessionRepo    UserSessionRepository
+	invitationRepo OrganizationInvitationRepository
+	auditRepo      AuditLogRepository
 }
 
 func New(svc *Service, addr string) (*Server, error) {
@@ -34,9 +47,14 @@ func New(svc *Service, addr string) (*Server, error) {
 }
 
 func NewWithAPIKeys(svc *Service, apiKeySvc *APIKeyService, addr string) (*Server, error) {
+	return NewWithAPIKeysAndAuth(svc, apiKeySvc, nil, addr)
+}
+
+func NewWithAPIKeysAndAuth(svc *Service, apiKeySvc *APIKeyService, authSvc *AuthService, addr string) (*Server, error) {
 	ans := Server{
 		svc:       svc,
 		apiKeySvc: apiKeySvc,
+		authSvc:   authSvc,
 		tmpl:      make(map[string]*template.Template),
 		srv: &http.Server{
 			Addr:              addr,
@@ -57,25 +75,40 @@ func NewWithAPIKeys(svc *Service, apiKeySvc *APIKeyService, addr string) (*Serve
 	mux := http.NewServeMux()
 
 	mux.Handle("/static/", http.StripPrefix("/static/", fileServer))
-	mux.HandleFunc("/scrape", ans.scrape)
-	mux.HandleFunc("/import", ans.importData)
-	mux.HandleFunc("/download", func(w http.ResponseWriter, r *http.Request) {
+	
+	// Protected routes - require authentication
+	mux.HandleFunc("/scrape", ans.WebAuthMiddleware(ans.scrape))
+	mux.HandleFunc("/import", ans.WebAuthMiddleware(ans.importData))
+	mux.HandleFunc("/download", ans.WebAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		r = requestWithID(r)
 
 		ans.download(w, r)
-	})
-	mux.HandleFunc("/delete", func(w http.ResponseWriter, r *http.Request) {
+	}))
+	mux.HandleFunc("/delete", ans.WebAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		r = requestWithID(r)
 
 		ans.delete(w, r)
-	})
-	mux.HandleFunc("/map", func(w http.ResponseWriter, r *http.Request) {
+	}))
+	mux.HandleFunc("/map", ans.WebAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		r = requestWithID(r)
 
 		ans.showMap(w, r)
-	})
-	mux.HandleFunc("/jobs", ans.getJobs)
-	mux.HandleFunc("/", ans.index)
+	}))
+	mux.HandleFunc("/jobs", ans.WebAuthMiddleware(ans.getJobs))
+
+	// Authentication UI routes
+	mux.HandleFunc("/login", ans.showLoginPage)
+	mux.HandleFunc("/register", ans.showRegisterPage)
+
+	// Authentication API routes
+	mux.HandleFunc("/api/v1/auth/register", ans.handleRegister)
+	mux.HandleFunc("/api/v1/auth/login", ans.handleLogin)
+	mux.HandleFunc("/api/v1/auth/logout", ans.handleLogout)
+	mux.HandleFunc("/api/v1/auth/me", ans.handleGetMe)
+	mux.HandleFunc("/api/v1/auth/change-password", ans.handleChangePassword)
+
+	// Main page - protected
+	mux.HandleFunc("/", ans.WebAuthMiddleware(ans.index))
 
 	// api routes
 	mux.HandleFunc("/api/docs", ans.redocHandler)
@@ -226,24 +259,24 @@ func NewWithAPIKeys(svc *Service, apiKeySvc *APIKeyService, addr string) (*Serve
 			ans.apiRevokeAPIKey(w, r)
 		})
 
-		// Web UI routes for API key management
-		mux.HandleFunc("/apikeys", ans.apiKeysPage)
-		mux.HandleFunc("/apikeys/create", ans.createAPIKeyWeb)
-		mux.HandleFunc("/apikeys/{id}/revoke", func(w http.ResponseWriter, r *http.Request) {
+		// Web UI routes for API key management - protected
+		mux.HandleFunc("/apikeys", ans.WebAuthMiddleware(ans.apiKeysPage))
+		mux.HandleFunc("/apikeys/create", ans.WebAuthMiddleware(ans.createAPIKeyWeb))
+		mux.HandleFunc("/apikeys/{id}/revoke", ans.WebAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
 			r = requestWithID(r)
 			ans.revokeAPIKeyWeb(w, r)
-		})
-		mux.HandleFunc("/apikeys/{id}/delete", func(w http.ResponseWriter, r *http.Request) {
+		}))
+		mux.HandleFunc("/apikeys/{id}/delete", ans.WebAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
 			r = requestWithID(r)
 			ans.deleteAPIKeyWeb(w, r)
-		})
+		}))
 	}
 
-	mux.HandleFunc("/retry", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/retry", ans.WebAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		r = requestWithID(r)
 
 		ans.retry(w, r)
-	})
+	}))
 
 	// Apply security headers
 	handler := securityHeaders(mux)
@@ -264,6 +297,8 @@ func NewWithAPIKeys(svc *Service, apiKeySvc *APIKeyService, addr string) (*Serve
 		"static/templates/map.html",
 		"static/templates/apikeys.html",
 		"static/templates/apikey_created.html",
+		"static/templates/login.html",
+		"static/templates/register.html",
 	}
 
 	for _, key := range tmplsKeys {
@@ -287,11 +322,13 @@ func (s *Server) applyAPIKeyAuth(next http.Handler) http.Handler {
 
 		// Skip authentication for:
 		// - Documentation routes (/api/docs, /api/swagger)
+		// - Authentication routes (/api/v1/auth/*)
 		// - API key management routes (bootstrap scenario)
 		// - Web UI routes
 		if !strings.HasPrefix(path, "/api/v1/") ||
 			path == "/api/docs" ||
-			path == "/api/swagger" {
+			path == "/api/swagger" ||
+			strings.HasPrefix(path, "/api/v1/auth/") {
 			next.ServeHTTP(w, r)
 			return
 		}

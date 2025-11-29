@@ -1,8 +1,16 @@
 package web
 
 import (
+	"context"
 	"net/http"
 	"strings"
+)
+
+type contextKey string
+
+const (
+	contextKeyUser   contextKey = "user"
+	contextKeyMember contextKey = "member"
 )
 
 // APIKeyAuthMiddleware checks for a valid API key in the request
@@ -68,4 +76,111 @@ func extractAPIKey(r *http.Request) string {
 	}
 
 	return ""
+}
+
+// SessionAuthMiddleware validates session and injects user into context
+func (s *Server) SessionAuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Extract token from header or cookie
+		token := extractSessionToken(r)
+		if token == "" {
+			renderJSON(w, http.StatusUnauthorized, apiError{Code: http.StatusUnauthorized, Message: "Authentication required"})
+			return
+		}
+
+		// Validate session
+		user, _, err := s.authSvc.ValidateSession(r.Context(), token)
+		if err != nil {
+			// Clear invalid cookie
+			http.SetCookie(w, &http.Cookie{
+				Name:     "session_token",
+				Value:    "",
+				Path:     "/",
+				HttpOnly: true,
+				MaxAge:   -1,
+			})
+			renderJSON(w, http.StatusUnauthorized, apiError{Code: http.StatusUnauthorized, Message: "Invalid or expired session"})
+			return
+		}
+
+		// Inject user into context
+		ctx := context.WithValue(r.Context(), contextKeyUser, user)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// extractSessionToken extracts the session token from the request
+// Priority: Authorization header > Cookie
+func extractSessionToken(r *http.Request) string {
+	// Check Authorization header (Bearer token)
+	authHeader := r.Header.Get("Authorization")
+	if authHeader != "" {
+		parts := strings.SplitN(authHeader, " ", 2)
+		if len(parts) == 2 && strings.ToLower(parts[0]) == "bearer" {
+			return strings.TrimSpace(parts[1])
+		}
+	}
+
+	// Check cookie
+	cookie, err := r.Cookie("session_token")
+	if err == nil {
+		return cookie.Value
+	}
+
+	return ""
+}
+
+// getUserFromContext retrieves the user from the request context
+func getUserFromContext(ctx context.Context) *User {
+	user, ok := ctx.Value(contextKeyUser).(*User)
+	if !ok {
+		return nil
+	}
+	return user
+}
+
+// getMemberFromContext retrieves the member from the request context
+func getMemberFromContext(ctx context.Context) *OrganizationMember {
+	member, ok := ctx.Value(contextKeyMember).(*OrganizationMember)
+	if !ok {
+		return nil
+	}
+	return member
+}
+
+// WebAuthMiddleware protects web pages by redirecting to login if not authenticated
+func (s *Server) WebAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// If auth service is not configured, allow access (backward compatibility)
+		if s.authSvc == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Extract token from cookie
+		token := extractSessionToken(r)
+		if token == "" {
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
+		}
+
+		// Validate session
+		user, _, err := s.authSvc.ValidateSession(r.Context(), token)
+		if err != nil {
+			// Clear invalid cookie
+			http.SetCookie(w, &http.Cookie{
+				Name:     "session_token",
+				Value:    "",
+				Path:     "/",
+				HttpOnly: true,
+				MaxAge:   -1,
+			})
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
+		}
+
+		// Inject user into context and proceed
+		ctx := context.WithValue(r.Context(), contextKeyUser, user)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	}
 }

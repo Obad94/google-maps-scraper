@@ -2,6 +2,7 @@ package webrunner
 
 import (
 	"context"
+	"database/sql"
 	"encoding/csv"
 	"errors"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/gosom/google-maps-scraper/deduper"
 	"github.com/gosom/google-maps-scraper/exiter"
+	"github.com/gosom/google-maps-scraper/postgres"
 	"github.com/gosom/google-maps-scraper/runner"
 	"github.com/gosom/google-maps-scraper/tlmt"
 	"github.com/gosom/google-maps-scraper/web"
@@ -22,6 +24,8 @@ import (
 	"github.com/gosom/scrapemate/adapters/writers/csvwriter"
 	"github.com/gosom/scrapemate/scrapemateapp"
 	"golang.org/x/sync/errgroup"
+
+	_ "github.com/jackc/pgx/v5/stdlib" // PostgreSQL driver
 )
 
 type webrunner struct {
@@ -43,24 +47,45 @@ func New(cfg *runner.Config) (runner.Runner, error) {
 
 	dbpath := filepath.Join(cfg.DataFolder, dbfname)
 
-	// Initialize database
+	// Initialize SQLite database for jobs
 	db, err := sqlite.InitDB(dbpath)
 	if err != nil {
 		return nil, err
 	}
 
-	// Create repositories
+	// Create repositories for jobs (always SQLite)
 	repo := sqlite.NewWithDB(db)
 	svc := web.NewService(repo, cfg.DataFolder)
 
-	// Create API key repository and service
+	// Create API key repository and service (SQLite)
 	apiKeyRepo := sqlite.NewAPIKeyRepository(db)
 	apiKeySvc := web.NewAPIKeyService(apiKeyRepo)
 
-	// Create server with API key support (but authentication not enforced by default)
-	// To enforce authentication, the middleware is already in place but won't block requests
-	// unless explicitly configured to do so
-	srv, err := web.NewWithAPIKeys(svc, apiKeySvc, cfg.Addr)
+	// Check if PostgreSQL is configured for auth (DATABASE_URL environment variable)
+	var authSvc *web.AuthService
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL != "" {
+		log.Printf("PostgreSQL configured for authentication (DATABASE_URL found)")
+		pgDB, err := openPostgresConn(databaseURL)
+		if err != nil {
+			log.Printf("WARNING: Failed to connect to PostgreSQL: %v. Auth features disabled.", err)
+		} else {
+			// Create PostgreSQL auth repositories
+			userRepo := postgres.NewUserRepository(pgDB)
+			sessionRepo := postgres.NewUserSessionRepository(pgDB)
+			authSvc = web.NewAuthService(userRepo, sessionRepo, nil) // nil for audit repo
+			log.Printf("PostgreSQL authentication enabled")
+		}
+	} else {
+		log.Printf("No DATABASE_URL configured. Using SQLite for authentication.")
+		// Use SQLite for auth
+		userRepo := sqlite.NewUserRepository(db)
+		sessionRepo := sqlite.NewSessionRepository(db)
+		authSvc = web.NewAuthService(userRepo, sessionRepo, nil)
+	}
+
+	// Create server with API key support and auth service
+	srv, err := web.NewWithAPIKeysAndAuth(svc, apiKeySvc, authSvc, cfg.Addr)
 	if err != nil {
 		return nil, err
 	}
@@ -72,6 +97,27 @@ func New(cfg *runner.Config) (runner.Runner, error) {
 	}
 
 	return &ans, nil
+}
+
+// openPostgresConn opens a connection to PostgreSQL
+func openPostgresConn(dsn string) (*sql.DB, error) {
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open PostgreSQL connection: %w", err)
+	}
+
+	// Test connection
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to ping PostgreSQL: %w", err)
+	}
+
+	// Configure connection pool
+	db.SetMaxOpenConns(10)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(30 * time.Minute)
+
+	return db, nil
 }
 
 func (w *webrunner) Run(ctx context.Context) error {
