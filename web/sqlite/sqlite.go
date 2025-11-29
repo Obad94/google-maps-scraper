@@ -24,6 +24,14 @@ func New(path string) (web.JobRepository, error) {
 	return &repo{db: db}, nil
 }
 
+func NewWithDB(db *sql.DB) web.JobRepository {
+	return &repo{db: db}
+}
+
+func InitDB(path string) (*sql.DB, error) {
+	return initDatabase(path)
+}
+
 func (repo *repo) Get(ctx context.Context, id string) (web.Job, error) {
 	const q = `SELECT * from jobs WHERE id = ?`
 
@@ -205,6 +213,7 @@ func initDatabase(path string) (*sql.DB, error) {
 }
 
 func createSchema(db *sql.DB) error {
+	// Create jobs table
 	_, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS jobs (
 			id TEXT PRIMARY KEY,
@@ -214,6 +223,39 @@ func createSchema(db *sql.DB) error {
 			created_at INT NOT NULL,
 			updated_at INT NOT NULL
 		)
+	`)
+	if err != nil {
+		return err
+	}
+
+	// Create api_keys table
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS api_keys (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			key_hash TEXT NOT NULL UNIQUE,
+			status TEXT NOT NULL,
+			created_at INT NOT NULL,
+			updated_at INT NOT NULL,
+			last_used_at INT,
+			expires_at INT
+		)
+	`)
+	if err != nil {
+		return err
+	}
+
+	// Create index on key_hash for faster lookups
+	_, err = db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_api_keys_key_hash ON api_keys(key_hash)
+	`)
+	if err != nil {
+		return err
+	}
+
+	// Create index on status for faster filtering
+	_, err = db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_api_keys_status ON api_keys(status)
 	`)
 
 	return err

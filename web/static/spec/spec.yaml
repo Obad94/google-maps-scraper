@@ -2,7 +2,23 @@ openapi: 3.0.3
 info:
   title: Google Maps Scraper API
   version: 1.0.0
-  description: API for managing job google maps scraping tasks
+  description: |
+    API for managing Google Maps scraping tasks
+
+    ## Authentication
+
+    This API supports API key authentication. You can provide your API key in one of three ways:
+
+    1. **Bearer Token** (Recommended): `Authorization: Bearer gms_YOUR_API_KEY`
+    2. **X-API-Key Header**: `X-API-Key: gms_YOUR_API_KEY`
+    3. **Query Parameter**: `?api_key=gms_YOUR_API_KEY`
+
+    To get an API key, navigate to `/apikeys` in the web interface or use the API key management endpoints.
+
+security:
+  - bearerAuth: []
+  - apiKeyHeader: []
+  - apiKeyQuery: []
 
 paths:
   /api/v1/jobs:
@@ -240,7 +256,215 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
 
+  /api/v1/apikeys:
+    post:
+      summary: Create a new API key
+      description: Creates a new API key for authentication. The full key is returned only once and cannot be retrieved again.
+      x-code-samples:
+        - lang: curl
+          source: |
+            curl -X POST "http://localhost:8080/api/v1/apikeys" \
+              -H "Content-Type: application/json" \
+              -d '{"name": "My Production Key", "expires_at": "2025-12-31T23:59:59Z"}'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                  description: A descriptive name for the API key
+                  example: "Production Key"
+                expires_at:
+                  type: string
+                  format: date-time
+                  description: Optional expiration date for the key
+                  example: "2025-12-31T23:59:59Z"
+      responses:
+        '201':
+          description: API key created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateAPIKeyResponse'
+        '400':
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '422':
+          description: Name is required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Failed to create API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+    get:
+      summary: List all API keys
+      description: Returns a list of all API keys (keys themselves are not included, only metadata)
+      x-code-samples:
+        - lang: curl
+          source: |
+            curl -X GET "http://localhost:8080/api/v1/apikeys" \
+              -H "Authorization: Bearer YOUR_API_KEY"
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListAPIKeysResponse'
+        '500':
+          description: Failed to list API keys
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /api/v1/apikeys/{id}:
+    get:
+      summary: Get a specific API key
+      description: Returns metadata for a specific API key (the key itself is not included)
+      x-code-samples:
+        - lang: curl
+          source: |
+            curl -X GET "http://localhost:8080/api/v1/apikeys/123e4567-e89b-12d3-a456-426614174000" \
+              -H "Authorization: Bearer YOUR_API_KEY"
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The API key ID
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIKeyResponse'
+        '400':
+          description: Invalid or missing API key ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: API key not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+    delete:
+      summary: Delete an API key
+      description: Permanently deletes an API key
+      x-code-samples:
+        - lang: curl
+          source: |
+            curl -X DELETE "http://localhost:8080/api/v1/apikeys/123e4567-e89b-12d3-a456-426614174000" \
+              -H "Authorization: Bearer YOUR_API_KEY"
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The API key ID
+      responses:
+        '200':
+          description: API key deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "API key deleted successfully"
+        '400':
+          description: Invalid or missing API key ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Failed to delete API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /api/v1/apikeys/{id}/revoke:
+    post:
+      summary: Revoke an API key
+      description: Revokes an API key, making it immediately unusable for authentication
+      x-code-samples:
+        - lang: curl
+          source: |
+            curl -X POST "http://localhost:8080/api/v1/apikeys/123e4567-e89b-12d3-a456-426614174000/revoke" \
+              -H "Authorization: Bearer YOUR_API_KEY"
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The API key ID
+      responses:
+        '200':
+          description: API key revoked successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "API key revoked successfully"
+        '400':
+          description: Invalid or missing API key ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Failed to revoke API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API Key
+      description: Provide your API key as a Bearer token
+    apiKeyHeader:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Provide your API key in the X-API-Key header
+    apiKeyQuery:
+      type: apiKey
+      in: query
+      name: api_key
+      description: Provide your API key as a query parameter
+
   schemas:
     ApiError:
       type: object
@@ -332,6 +556,82 @@ components:
           type: array
           items:
             type: string
+
+    CreateAPIKeyResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          description: The unique ID of the created API key
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        name:
+          type: string
+          description: The name of the API key
+          example: "Production Key"
+        key:
+          type: string
+          description: The full API key (only shown once!)
+          example: "gms_abcdef1234567890..."
+        status:
+          type: string
+          description: The key status
+          example: "active"
+        created_at:
+          type: string
+          format: date-time
+          description: When the key was created
+        expires_at:
+          type: string
+          format: date-time
+          description: When the key expires (if set)
+        message:
+          type: string
+          description: Important message about saving the key
+          example: "API key created successfully. Please save this key as it will not be shown again."
+
+    APIKeyResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          description: The unique ID of the API key
+        name:
+          type: string
+          description: The name of the API key
+        status:
+          type: string
+          description: The key status (active or revoked)
+          enum:
+            - active
+            - revoked
+        created_at:
+          type: string
+          format: date-time
+          description: When the key was created
+        updated_at:
+          type: string
+          format: date-time
+          description: When the key was last updated
+        last_used_at:
+          type: string
+          format: date-time
+          description: When the key was last used for authentication
+        expires_at:
+          type: string
+          format: date-time
+          description: When the key expires (if set)
+
+    ListAPIKeysResponse:
+      type: object
+      properties:
+        api_keys:
+          type: array
+          items:
+            $ref: '#/components/schemas/APIKeyResponse'
+        count:
+          type: integer
+          description: Total number of API keys
+          example: 5
 
     Place:
       type: object

@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Keys - Google Maps Scraper</title>
+    <link rel="stylesheet" href="/static/css/main.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/htmx/1.9.6/htmx.min.js"></script>
+    <style>
+        .api-keys-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .api-keys-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+        }
+
+        .api-keys-header h1 {
+            margin: 0;
+        }
+
+        .create-key-form {
+            background: var(--bg-secondary, #f8f9fa);
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+        }
+
+        .create-key-form h2 {
+            margin-top: 0;
+            font-size: 1.2rem;
+            color: var(--text-primary, #333);
+        }
+
+        .form-row {
+            display: flex;
+            gap: 15px;
+            align-items: flex-end;
+            flex-wrap: wrap;
+        }
+
+        .form-row .btn {
+            margin-bottom: 15px;
+        }
+
+        .form-group {
+            flex: 1;
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid var(--border-color, #ddd);
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: var(--primary-color, #007bff);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-hover, #0056b3);
+        }
+
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #c82333;
+        }
+
+        .btn-warning {
+            background: #ffc107;
+            color: #212529;
+        }
+
+        .btn-warning:hover {
+            background: #e0a800;
+        }
+
+        .btn-sm {
+            padding: 5px 10px;
+            font-size: 12px;
+        }
+
+        .api-keys-table {
+            width: 100%;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .api-keys-table table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .api-keys-table th {
+            background: var(--table-header-bg, #f8f9fa);
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+            border-bottom: 2px solid var(--border-color, #dee2e6);
+        }
+
+        .api-keys-table td {
+            padding: 12px;
+            border-bottom: 1px solid var(--border-color, #dee2e6);
+        }
+
+        .api-keys-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .status-active {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-revoked {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .back-link {
+            display: inline-block;
+            margin-top: 20px;
+            color: var(--primary-color, #007bff);
+            text-decoration: none;
+        }
+
+        .back-link:hover {
+            text-decoration: underline;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-secondary, #666);
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            max-width: 600px;
+            width: 90%;
+            position: relative;
+        }
+
+        .modal-close {
+            position: absolute;
+            top: 10px;
+            right: 15px;
+            font-size: 28px;
+            font-weight: bold;
+            color: #999;
+            cursor: pointer;
+            background: none;
+            border: none;
+            padding: 0;
+            width: 30px;
+            height: 30px;
+            line-height: 30px;
+        }
+
+        .modal-close:hover {
+            color: #333;
+        }
+
+        .modal-header {
+            margin-bottom: 20px;
+        }
+
+        .modal-header h2 {
+            margin: 0;
+            font-size: 1.5rem;
+        }
+
+        .code-block {
+            background: #f4f4f4;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            word-break: break-all;
+            margin: 15px 0;
+        }
+
+        .warning-box {
+            background: #fff3cd;
+            border: 1px solid #ffeeba;
+            color: #856404;
+            padding: 12px;
+            border-radius: 4px;
+            margin: 15px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="api-keys-container">
+        <div class="api-keys-header">
+            <div>
+                <h1>API Key Management</h1>
+                <p>Manage API keys for accessing the Google Maps Scraper API</p>
+            </div>
+            <a href="/" class="back-link">← Back to Dashboard</a>
+        </div>
+
+        <!-- Create API Key Form -->
+        <div class="create-key-form">
+            <h2>Create New API Key</h2>
+            <form id="createKeyForm" action="/apikeys/create" method="POST">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="name">Name:</label>
+                        <input type="text" id="name" name="name" required placeholder="e.g., Production Key">
+                    </div>
+                    <div class="form-group">
+                        <label for="expires_at">Expires At (Optional):</label>
+                        <input type="date" id="expires_at" name="expires_at">
+                    </div>
+                    <button type="submit" class="btn btn-primary">Create API Key</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- API Keys List -->
+        <div class="api-keys-table">
+            {{if .APIKeys}}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Status</th>
+                        <th>Created</th>
+                        <th>Last Used</th>
+                        <th>Expires</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .APIKeys}}
+                    <tr>
+                        <td><strong>{{.Name}}</strong></td>
+                        <td>
+                            <span class="status-badge {{if eq .Status "active"}}status-active{{else}}status-revoked{{end}}">
+                                {{.Status}}
+                            </span>
+                        </td>
+                        <td>{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
+                        <td>
+                            {{if .LastUsedAt}}
+                                {{.LastUsedAt.Format "2006-01-02 15:04"}}
+                            {{else}}
+                                Never
+                            {{end}}
+                        </td>
+                        <td>
+                            {{if .ExpiresAt}}
+                                {{.ExpiresAt.Format "2006-01-02"}}
+                            {{else}}
+                                Never
+                            {{end}}
+                        </td>
+                        <td>
+                            <div class="actions">
+                                {{if eq .Status "active"}}
+                                <form action="/apikeys/{{.ID}}/revoke" method="POST" style="display: inline;">
+                                    <button type="submit" class="btn btn-warning btn-sm" onclick="return confirm('Are you sure you want to revoke this API key?')">
+                                        Revoke
+                                    </button>
+                                </form>
+                                {{end}}
+                                <form action="/apikeys/{{.ID}}/delete" method="POST" style="display: inline;">
+                                    <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Are you sure you want to permanently delete this API key?')">
+                                        Delete
+                                    </button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+            {{else}}
+            <div class="empty-state">
+                <p>No API keys found. Create your first API key to get started.</p>
+            </div>
+            {{end}}
+        </div>
+    </div>
+
+    <!-- Modal for showing created API key -->
+    <div id="keyModal" class="modal">
+        <div class="modal-content">
+            <button class="modal-close" onclick="closeModal()">&times;</button>
+            <div class="modal-header">
+                <h2>API Key Created Successfully</h2>
+            </div>
+            <div class="warning-box">
+                <strong>⚠️ Important:</strong> Save this API key now. You won't be able to see it again!
+            </div>
+            <div id="keyDetails"></div>
+            <button class="btn btn-primary" style="width: 100%; margin-top: 20px;" onclick="closeModal()">
+                I've Saved the Key
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // Add form submit handler
+        document.getElementById('createKeyForm').addEventListener('submit', function(event) {
+            event.preventDefault();
+
+            const form = event.target;
+            const name = document.getElementById('name').value;
+            const expiresAt = document.getElementById('expires_at').value;
+
+            // Validate name is provided
+            if (!name || name.trim() === '') {
+                alert('Please provide a name for the API key');
+                return;
+            }
+
+            // Create URLSearchParams for proper form encoding
+            const formData = new URLSearchParams();
+            formData.append('name', name);
+            if (expiresAt) {
+                formData.append('expires_at', expiresAt);
+            }
+
+            // Send request
+            fetch('/apikeys/create', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: formData.toString()
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.text().then(text => {
+                        throw new Error(text || 'Failed to create API key');
+                    });
+                }
+                return response.text();
+            })
+            .then(html => {
+                document.getElementById('keyDetails').innerHTML = html;
+                document.getElementById('keyModal').classList.add('active');
+                form.reset();
+            })
+            .catch(error => {
+                alert('Failed to create API key: ' + error.message);
+            });
+        });
+
+        function closeModal() {
+            document.getElementById('keyModal').classList.remove('active');
+            document.getElementById('keyDetails').innerHTML = '';
+            // Reload the page to show the new key in the list
+            window.location.reload();
+        }
+
+        // Close modal when clicking outside
+        document.getElementById('keyModal').addEventListener('click', function(event) {
+            if (event.target === this) {
+                closeModal();
+            }
+        });
+
+        // Copy to clipboard function (called from the apikey_created template)
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(function() {
+                alert('API key copied to clipboard!');
+            }, function(err) {
+                // Fallback for older browsers
+                const textArea = document.createElement('textarea');
+                textArea.value = text;
+                textArea.style.position = 'fixed';
+                textArea.style.left = '-9999px';
+                document.body.appendChild(textArea);
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    alert('API key copied to clipboard!');
+                } catch (err) {
+                    alert('Failed to copy. Please copy manually: ' + text);
+                }
+                document.body.removeChild(textArea);
+            });
+        }
+    </script>
+</body>
+</html>

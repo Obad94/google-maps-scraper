@@ -43,14 +43,24 @@ func New(cfg *runner.Config) (runner.Runner, error) {
 
 	dbpath := filepath.Join(cfg.DataFolder, dbfname)
 
-	repo, err := sqlite.New(dbpath)
+	// Initialize database
+	db, err := sqlite.InitDB(dbpath)
 	if err != nil {
 		return nil, err
 	}
 
+	// Create repositories
+	repo := sqlite.NewWithDB(db)
 	svc := web.NewService(repo, cfg.DataFolder)
 
-	srv, err := web.New(svc, cfg.Addr)
+	// Create API key repository and service
+	apiKeyRepo := sqlite.NewAPIKeyRepository(db)
+	apiKeySvc := web.NewAPIKeyService(apiKeyRepo)
+
+	// Create server with API key support (but authentication not enforced by default)
+	// To enforce authentication, the middleware is already in place but won't block requests
+	// unless explicitly configured to do so
+	srv, err := web.NewWithAPIKeys(svc, apiKeySvc, cfg.Addr)
 	if err != nil {
 		return nil, err
 	}

@@ -23,15 +23,21 @@ import (
 var static embed.FS
 
 type Server struct {
-	tmpl map[string]*template.Template
-	srv  *http.Server
-	svc  *Service
+	tmpl       map[string]*template.Template
+	srv        *http.Server
+	svc        *Service
+	apiKeySvc  *APIKeyService
 }
 
 func New(svc *Service, addr string) (*Server, error) {
+	return NewWithAPIKeys(svc, nil, addr)
+}
+
+func NewWithAPIKeys(svc *Service, apiKeySvc *APIKeyService, addr string) (*Server, error) {
 	ans := Server{
-		svc:  svc,
-		tmpl: make(map[string]*template.Template),
+		svc:       svc,
+		apiKeySvc: apiKeySvc,
+		tmpl:      make(map[string]*template.Template),
 		srv: &http.Server{
 			Addr:              addr,
 			ReadHeaderTimeout: 10 * time.Second,
@@ -174,13 +180,79 @@ func New(svc *Service, addr string) (*Server, error) {
 		ans.apiImportData(w, r)
 	})
 
+	// API Key Management routes (requires apiKeySvc to be set)
+	if ans.apiKeySvc != nil {
+		mux.HandleFunc("/api/v1/apikeys", func(w http.ResponseWriter, r *http.Request) {
+			switch r.Method {
+			case http.MethodPost:
+				ans.apiCreateAPIKey(w, r)
+			case http.MethodGet:
+				ans.apiListAPIKeys(w, r)
+			default:
+				renderJSON(w, http.StatusMethodNotAllowed, apiError{
+					Code:    http.StatusMethodNotAllowed,
+					Message: "Method not allowed",
+				})
+			}
+		})
+
+		mux.HandleFunc("/api/v1/apikeys/{id}", func(w http.ResponseWriter, r *http.Request) {
+			r = requestWithID(r)
+
+			switch r.Method {
+			case http.MethodGet:
+				ans.apiGetAPIKey(w, r)
+			case http.MethodDelete:
+				ans.apiDeleteAPIKey(w, r)
+			default:
+				renderJSON(w, http.StatusMethodNotAllowed, apiError{
+					Code:    http.StatusMethodNotAllowed,
+					Message: "Method not allowed",
+				})
+			}
+		})
+
+		mux.HandleFunc("/api/v1/apikeys/{id}/revoke", func(w http.ResponseWriter, r *http.Request) {
+			r = requestWithID(r)
+
+			if r.Method != http.MethodPost {
+				renderJSON(w, http.StatusMethodNotAllowed, apiError{
+					Code:    http.StatusMethodNotAllowed,
+					Message: "Method not allowed",
+				})
+				return
+			}
+
+			ans.apiRevokeAPIKey(w, r)
+		})
+
+		// Web UI routes for API key management
+		mux.HandleFunc("/apikeys", ans.apiKeysPage)
+		mux.HandleFunc("/apikeys/create", ans.createAPIKeyWeb)
+		mux.HandleFunc("/apikeys/{id}/revoke", func(w http.ResponseWriter, r *http.Request) {
+			r = requestWithID(r)
+			ans.revokeAPIKeyWeb(w, r)
+		})
+		mux.HandleFunc("/apikeys/{id}/delete", func(w http.ResponseWriter, r *http.Request) {
+			r = requestWithID(r)
+			ans.deleteAPIKeyWeb(w, r)
+		})
+	}
+
 	mux.HandleFunc("/retry", func(w http.ResponseWriter, r *http.Request) {
 		r = requestWithID(r)
 
 		ans.retry(w, r)
 	})
 
+	// Apply security headers
 	handler := securityHeaders(mux)
+
+	// If API key service is enabled, wrap API routes with authentication middleware
+	if ans.apiKeySvc != nil {
+		handler = ans.applyAPIKeyAuth(handler)
+	}
+
 	ans.srv.Handler = handler
 
 	tmplsKeys := []string{
@@ -190,6 +262,8 @@ func New(svc *Service, addr string) (*Server, error) {
 		"static/templates/redoc.html",
 		"static/templates/swagger.html",
 		"static/templates/map.html",
+		"static/templates/apikeys.html",
+		"static/templates/apikey_created.html",
 	}
 
 	for _, key := range tmplsKeys {
@@ -202,6 +276,53 @@ func New(svc *Service, addr string) (*Server, error) {
 	}
 
 	return &ans, nil
+}
+
+// applyAPIKeyAuth wraps the handler with API key authentication for API routes
+// It only applies authentication to routes starting with /api/v1/ (except /api/docs and /api/swagger)
+func (s *Server) applyAPIKeyAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Check if this is an API route that requires authentication
+		path := r.URL.Path
+
+		// Skip authentication for:
+		// - Documentation routes (/api/docs, /api/swagger)
+		// - API key management routes (bootstrap scenario)
+		// - Web UI routes
+		if !strings.HasPrefix(path, "/api/v1/") ||
+			path == "/api/docs" ||
+			path == "/api/swagger" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Apply authentication to all other API routes
+		ctx := r.Context()
+
+		// Extract API key from request
+		apiKey := extractAPIKey(r)
+
+		if apiKey == "" {
+			renderJSON(w, http.StatusUnauthorized, apiError{
+				Code:    http.StatusUnauthorized,
+				Message: "API key is required. Provide it via Authorization header (Bearer token), X-API-Key header, or api_key query parameter.",
+			})
+			return
+		}
+
+		// Validate API key
+		_, err := s.apiKeySvc.Validate(ctx, apiKey)
+		if err != nil {
+			renderJSON(w, http.StatusUnauthorized, apiError{
+				Code:    http.StatusUnauthorized,
+				Message: "Invalid or expired API key",
+			})
+			return
+		}
+
+		// API key is valid, proceed to next handler
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) Start(ctx context.Context) error {
