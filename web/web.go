@@ -52,6 +52,7 @@ func New(svc *Service, addr string) (*Server, error) {
 
 	mux.Handle("/static/", http.StripPrefix("/static/", fileServer))
 	mux.HandleFunc("/scrape", ans.scrape)
+	mux.HandleFunc("/import", ans.importData)
 	mux.HandleFunc("/download", func(w http.ResponseWriter, r *http.Request) {
 		r = requestWithID(r)
 
@@ -156,6 +157,21 @@ func New(svc *Service, addr string) (*Server, error) {
 		}
 
 		ans.apiRetryJob(w, r)
+	})
+
+	mux.HandleFunc("/api/v1/jobs/import", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			ans := apiError{
+				Code:    http.StatusMethodNotAllowed,
+				Message: "Method not allowed",
+			}
+
+			renderJSON(w, http.StatusMethodNotAllowed, ans)
+
+			return
+		}
+
+		ans.apiImportData(w, r)
 	})
 
 	mux.HandleFunc("/retry", func(w http.ResponseWriter, r *http.Request) {
@@ -904,6 +920,136 @@ func (s *Server) apiGetResults(w http.ResponseWriter, r *http.Request) {
 	}
 
 	renderJSON(w, http.StatusOK, results)
+}
+
+func (s *Server) importData(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse multipart form with max 50MB file size
+	if err := r.ParseMultipartForm(50 << 20); err != nil {
+		http.Error(w, "Failed to parse form: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Get job name
+	jobName := r.FormValue("import_job_name")
+	if jobName == "" {
+		jobName = "Imported Data - " + time.Now().Format("2006-01-02 15:04:05")
+	}
+
+	// Get uploaded file
+	file, header, err := r.FormFile("import_file")
+	if err != nil {
+		http.Error(w, "Failed to get file: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	// Read file content
+	fileData, err := io.ReadAll(file)
+	if err != nil {
+		http.Error(w, "Failed to read file: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Determine file type from extension
+	var job *Job
+	filename := strings.ToLower(header.Filename)
+
+	if strings.HasSuffix(filename, ".csv") {
+		job, err = s.svc.ImportFromCSV(r.Context(), jobName, fileData)
+	} else if strings.HasSuffix(filename, ".json") {
+		job, err = s.svc.ImportFromJSON(r.Context(), jobName, fileData)
+	} else {
+		http.Error(w, "Unsupported file type. Please upload a CSV or JSON file.", http.StatusBadRequest)
+		return
+	}
+
+	if err != nil {
+		http.Error(w, "Import failed: "+err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+
+	// Return the job row HTML for HTMX
+	tmpl, ok := s.tmpl["static/templates/job_row.html"]
+	if !ok {
+		http.Error(w, "missing tpl", http.StatusInternalServerError)
+		return
+	}
+
+	_ = tmpl.Execute(w, job)
+}
+
+func (s *Server) apiImportData(w http.ResponseWriter, r *http.Request) {
+	// Parse multipart form with max 50MB file size
+	if err := r.ParseMultipartForm(50 << 20); err != nil {
+		apiError := apiError{
+			Code:    http.StatusBadRequest,
+			Message: "Failed to parse form: " + err.Error(),
+		}
+		renderJSON(w, http.StatusBadRequest, apiError)
+		return
+	}
+
+	// Get job name
+	jobName := r.FormValue("job_name")
+	if jobName == "" {
+		jobName = "Imported Data - " + time.Now().Format("2006-01-02 15:04:05")
+	}
+
+	// Get uploaded file
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		apiError := apiError{
+			Code:    http.StatusBadRequest,
+			Message: "Failed to get file: " + err.Error(),
+		}
+		renderJSON(w, http.StatusBadRequest, apiError)
+		return
+	}
+	defer file.Close()
+
+	// Read file content
+	fileData, err := io.ReadAll(file)
+	if err != nil {
+		apiError := apiError{
+			Code:    http.StatusInternalServerError,
+			Message: "Failed to read file: " + err.Error(),
+		}
+		renderJSON(w, http.StatusInternalServerError, apiError)
+		return
+	}
+
+	// Determine file type from extension
+	var job *Job
+	filename := strings.ToLower(header.Filename)
+
+	if strings.HasSuffix(filename, ".csv") {
+		job, err = s.svc.ImportFromCSV(r.Context(), jobName, fileData)
+	} else if strings.HasSuffix(filename, ".json") {
+		job, err = s.svc.ImportFromJSON(r.Context(), jobName, fileData)
+	} else {
+		apiError := apiError{
+			Code:    http.StatusBadRequest,
+			Message: "Unsupported file type. Please upload a CSV or JSON file.",
+		}
+		renderJSON(w, http.StatusBadRequest, apiError)
+		return
+	}
+
+	if err != nil {
+		apiError := apiError{
+			Code:    http.StatusUnprocessableEntity,
+			Message: "Import failed: " + err.Error(),
+		}
+		renderJSON(w, http.StatusUnprocessableEntity, apiError)
+		return
+	}
+
+	renderJSON(w, http.StatusCreated, job)
 }
 
 func renderJSON(w http.ResponseWriter, code int, data any) {

@@ -9,7 +9,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/gosom/google-maps-scraper/gmaps"
 )
 
@@ -231,4 +233,146 @@ func (s *Service) GetResults(_ context.Context, id string) ([]gmaps.Entry, error
 	}
 
 	return results, nil
+}
+
+func (s *Service) ImportFromCSV(ctx context.Context, jobName string, csvData []byte) (*Job, error) {
+	// Create a new job for the imported data
+	jobID := uuid.New()
+	now := time.Now()
+	job := &Job{
+		ID:        jobID.String(),
+		Name:      jobName,
+		Status:    StatusOK,
+		Date:      now,
+		UpdatedAt: now,
+	}
+
+	// Parse CSV to validate
+	reader := csv.NewReader(strings.NewReader(string(csvData)))
+
+	// Read and validate header
+	header, err := reader.Read()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read csv header: %w", err)
+	}
+
+	// Expected headers
+	var entry gmaps.Entry
+	expectedHeaders := entry.CsvHeaders()
+	if len(header) != len(expectedHeaders) {
+		return nil, fmt.Errorf("invalid csv format: expected %d columns, got %d", len(expectedHeaders), len(header))
+	}
+
+	// Validate that the file has the required columns (at least place_id or place_id_url or link)
+	hasRequiredFields := false
+	for i, h := range header {
+		if i < len(expectedHeaders) && h == expectedHeaders[i] {
+			if h == "place_id" || h == "place_id_url" || h == "link" {
+				hasRequiredFields = true
+			}
+		}
+	}
+
+	if !hasRequiredFields {
+		return nil, fmt.Errorf("csv must contain at least one of: place_id, place_id_url, or link")
+	}
+
+	// Write the CSV to the data folder
+	datapath := filepath.Join(s.dataFolder, jobID.String()+".csv")
+
+	// Add UTF-8 BOM for Excel compatibility
+	file, err := os.Create(datapath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create csv file: %w", err)
+	}
+	defer file.Close()
+
+	// Write BOM
+	bom := []byte{0xEF, 0xBB, 0xBF}
+	if _, err := file.Write(bom); err != nil {
+		return nil, fmt.Errorf("failed to write BOM: %w", err)
+	}
+
+	// Write CSV data
+	if _, err := file.Write(csvData); err != nil {
+		return nil, fmt.Errorf("failed to write csv data: %w", err)
+	}
+
+	// Create the job in the database
+	if err := s.repo.Create(ctx, job); err != nil {
+		// Clean up the file if job creation fails
+		os.Remove(datapath)
+		return nil, fmt.Errorf("failed to create job: %w", err)
+	}
+
+	return job, nil
+}
+
+func (s *Service) ImportFromJSON(ctx context.Context, jobName string, jsonData []byte) (*Job, error) {
+	// Parse JSON to validate
+	var entries []gmaps.Entry
+	if err := json.Unmarshal(jsonData, &entries); err != nil {
+		return nil, fmt.Errorf("failed to parse json: %w", err)
+	}
+
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("json file contains no entries")
+	}
+
+	// Validate entries have required fields
+	for i, entry := range entries {
+		if entry.Link == "" && entry.PlaceID == "" && entry.PlaceIDURL == "" {
+			return nil, fmt.Errorf("entry %d missing required fields (must have link, place_id, or place_id_url)", i)
+		}
+	}
+
+	// Create a new job for the imported data
+	jobID := uuid.New()
+	now := time.Now()
+	job := &Job{
+		ID:        jobID.String(),
+		Name:      jobName,
+		Status:    StatusOK,
+		Date:      now,
+		UpdatedAt: now,
+	}
+
+	// Write entries to CSV file
+	datapath := filepath.Join(s.dataFolder, jobID.String()+".csv")
+
+	file, err := os.Create(datapath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create csv file: %w", err)
+	}
+	defer file.Close()
+
+	// Write UTF-8 BOM for Excel compatibility
+	bom := []byte{0xEF, 0xBB, 0xBF}
+	if _, err := file.Write(bom); err != nil {
+		return nil, fmt.Errorf("failed to write BOM: %w", err)
+	}
+
+	writer := csv.NewWriter(file)
+	defer writer.Flush()
+
+	// Write header
+	if err := writer.Write(entries[0].CsvHeaders()); err != nil {
+		return nil, fmt.Errorf("failed to write csv header: %w", err)
+	}
+
+	// Write entries
+	for _, entry := range entries {
+		if err := writer.Write(entry.CsvRow()); err != nil {
+			return nil, fmt.Errorf("failed to write csv row: %w", err)
+		}
+	}
+
+	// Create the job in the database
+	if err := s.repo.Create(ctx, job); err != nil {
+		// Clean up the file if job creation fails
+		os.Remove(datapath)
+		return nil, fmt.Errorf("failed to create job: %w", err)
+	}
+
+	return job, nil
 }
