@@ -356,7 +356,7 @@ func runHybridNormalPhase(ctx context.Context, queries []string, cfg *Config, wr
         opts = append(opts, scrapemateapp.WithProxies(cfg.Proxies))
     }
     if !cfg.DisablePageReuse {
-        opts = append(opts, scrapemateapp.WithPageReuseLimit(2), scrapemateapp.WithPageReuseLimit(200))
+        opts = append(opts, scrapemateapp.WithPageReuseLimit(2), scrapemateapp.WithBrowserReuseLimit(200))
     }
 
     // Use the collector writer instead of original writers
@@ -500,7 +500,7 @@ func runHybridInitialNearbyPhase(ctx context.Context, queries []string, cfg *Con
         opts = append(opts, scrapemateapp.WithProxies(cfg.Proxies))
     }
     if !cfg.DisablePageReuse {
-        opts = append(opts, scrapemateapp.WithPageReuseLimit(2), scrapemateapp.WithPageReuseLimit(200))
+        opts = append(opts, scrapemateapp.WithPageReuseLimit(2), scrapemateapp.WithBrowserReuseLimit(200))
     }
 
     // Use the collector writer instead of original writers
@@ -810,7 +810,7 @@ func RunHybridWeb(ctx context.Context, cfg *Config, keywords []string, writers [
         opts = append(opts, scrapemateapp.WithProxies(cfg.Proxies))
     }
     if !cfg.DisablePageReuse {
-        opts = append(opts, scrapemateapp.WithPageReuseLimit(2), scrapemateapp.WithPageReuseLimit(200))
+        opts = append(opts, scrapemateapp.WithPageReuseLimit(2), scrapemateapp.WithBrowserReuseLimit(200))
     }
 
     matecfg, err := scrapemateapp.NewConfig(writers, opts...)

@@ -425,9 +425,25 @@ If you prefer to set up manually:
 
 3. **Build the application**
 
-   **Windows (PowerShell):**
+   **Windows (PowerShell) - IMPORTANT:**
+
+   On Windows, you must use the fix-windows.ps1 script to build the application. This script patches the vendor code to remove Linux-specific Chrome flags that cause browser crashes on Windows.
+
    ```powershell
+   .\fix-windows.ps1
+   ```
+
+   This script will:
+   - Create and patch the vendor folder
+   - Remove Windows-incompatible Chrome flags (--no-zygote, --disable-dev-shm-usage, --disable-setuid-sandbox, --single-process)
+   - Add OS detection to use these flags only on Linux
+   - Build google-maps-scraper.exe
+
+   **Manual Windows build (not recommended):**
+   ```powershell
+   # Only use this if you understand the implications
    go build -o google-maps-scraper.exe
+   # Note: This may result in browser crashes with multiple categories
    ```
 
    **Linux/Mac:**
@@ -483,6 +499,39 @@ If you prefer to set up manually:
 - For extra reviews (up to ~300), add the `-extra-reviews` parameter
 - Results will be written to the specified file as they arrive
 - The first run may take a bit longer as it sets up Playwright
+
+### Windows Compatibility
+
+**IMPORTANT for Windows Users:**
+
+The scraper uses Chromium browser via Playwright, which requires specific configuration on Windows. The vendor library includes Linux-specific Chrome flags that cause browser crashes on Windows, especially when scraping multiple categories or many places.
+
+#### The Problem
+These Chrome flags cause crashes on Windows:
+- `--disable-dev-shm-usage` - Uses Linux `/dev/shm` which doesn't exist on Windows
+- `--disable-setuid-sandbox` - Linux-specific sandbox feature
+- `--no-zygote` - Linux-specific process forking optimization
+- `--single-process` - Known to cause browser crashes on Windows
+
+#### The Solution
+Use the `fix-windows.ps1` script which:
+1. Patches the vendor code to add OS detection
+2. Removes Windows-incompatible flags automatically
+3. Ensures these flags are only used on Linux
+4. Builds a stable Windows executable
+
+```powershell
+# Run this from PowerShell in the project directory
+.\fix-windows.ps1
+```
+
+#### After Fixing
+You can safely run with multiple categories:
+```powershell
+.\google-maps-scraper.exe -BrowserAPI -geo "lat,lon" -input gmapsdata\categories.txt -results results.csv -zoom 21 -depth 1 -radius 20000 -c 3 -exit-on-inactivity 2m
+```
+
+**Note:** If you build without using `fix-windows.ps1`, you may experience browser crashes when scraping multiple categories or a large number of places (>20).
 
 ### Using docker:
 

@@ -205,7 +205,7 @@ func runBrowserAPIPhase2(ctx context.Context, places []placeSeed, cfg *Config, w
 		opts = append(opts, scrapemateapp.WithProxies(cfg.Proxies))
 	}
 	if !cfg.DisablePageReuse {
-		opts = append(opts, scrapemateapp.WithPageReuseLimit(2), scrapemateapp.WithPageReuseLimit(200))
+		opts = append(opts, scrapemateapp.WithPageReuseLimit(2), scrapemateapp.WithBrowserReuseLimit(200))
 	}
 
 	// Use the collector writer instead of original writers
@@ -342,7 +342,7 @@ func RunBrowserAPIFile(ctx context.Context, cfg *Config, input io.Reader, writer
 		opts = append(opts, scrapemateapp.WithProxies(cfg.Proxies))
 	}
 	if !cfg.DisablePageReuse {
-		opts = append(opts, scrapemateapp.WithPageReuseLimit(2), scrapemateapp.WithPageReuseLimit(200))
+		opts = append(opts, scrapemateapp.WithPageReuseLimit(2), scrapemateapp.WithBrowserReuseLimit(200))
 	}
 
 	matecfg, err := scrapemateapp.NewConfig(writers, opts...)
@@ -468,7 +468,7 @@ func RunBrowserAPIWeb(ctx context.Context, cfg *Config, keywords []string, write
 		opts = append(opts, scrapemateapp.WithProxies(cfg.Proxies))
 	}
 	if !cfg.DisablePageReuse {
-		opts = append(opts, scrapemateapp.WithPageReuseLimit(2), scrapemateapp.WithPageReuseLimit(200))
+		opts = append(opts, scrapemateapp.WithPageReuseLimit(2), scrapemateapp.WithBrowserReuseLimit(200))
 	}
 
 	matecfg, err := scrapemateapp.NewConfig(writers, opts...)
