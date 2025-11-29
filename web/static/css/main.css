@@ -211,16 +211,25 @@ th {
 }
 
 .download-button, .delete-button, .retry-button, .map-button {
+    display: inline-block;
     padding: 6px 12px;
     border-radius: 4px;
     font-size: 12px;
     text-decoration: none;
     color: white;
     margin-right: 8px;
+    margin-bottom: 4px;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.2s;
 }
 
 .download-button {
     background-color: var(--color-success);
+}
+
+.download-button:hover {
+    background-color: #388e3c;
 }
 
 .map-button {
@@ -241,6 +250,10 @@ th {
 
 .delete-button {
     background-color: var(--color-error);
+}
+
+.delete-button:hover {
+    background-color: #c62828;
 }
 
 .error-message {
