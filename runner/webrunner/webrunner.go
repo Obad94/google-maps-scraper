@@ -383,7 +383,18 @@ func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) error {
 		} else {
 			log.Printf("job %s: using global config concurrency for hybrid mode: %d", job.ID, tmpCfg.Concurrency)
 		}
-		// Proxies etc inherited from base config
+		// Override proxies if job-specific proxies are provided (API/Web UI takes priority)
+		if len(job.Data.Proxies) > 0 {
+			tmpCfg.Proxies = job.Data.Proxies
+			log.Printf("job %s: using job-specific proxies for hybrid mode (%d proxies)", job.ID, len(job.Data.Proxies))
+		} else if len(tmpCfg.Proxies) == 0 {
+			// Fallback to .env PROXY if no CLI/config proxies
+			envProxy := os.Getenv("PROXY")
+			if envProxy != "" {
+				tmpCfg.Proxies = []string{envProxy}
+				log.Printf("job %s: using fallback proxy from .env for hybrid mode: %s", job.ID, envProxy)
+			}
+		}
 		if err := runner.RunHybridWeb(ctx, &tmpCfg, job.Data.Keywords, writers); err != nil {
 			job.Status = web.StatusFailed
 			jobErr = err
@@ -411,7 +422,18 @@ func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) error {
 		} else {
 			log.Printf("job %s: using global config concurrency for BrowserAPI mode: %d", job.ID, tmpCfg.Concurrency)
 		}
-		// Proxies etc inherited from base config
+		// Override proxies if job-specific proxies are provided (API/Web UI takes priority)
+		if len(job.Data.Proxies) > 0 {
+			tmpCfg.Proxies = job.Data.Proxies
+			log.Printf("job %s: using job-specific proxies for BrowserAPI mode (%d proxies)", job.ID, len(job.Data.Proxies))
+		} else if len(tmpCfg.Proxies) == 0 {
+			// Fallback to .env PROXY if no CLI/config proxies
+			envProxy := os.Getenv("PROXY")
+			if envProxy != "" {
+				tmpCfg.Proxies = []string{envProxy}
+				log.Printf("job %s: using fallback proxy from .env for BrowserAPI mode: %s", job.ID, envProxy)
+			}
+		}
 		if err := runner.RunBrowserAPIWeb(ctx, &tmpCfg, job.Data.Keywords, writers); err != nil {
 			job.Status = web.StatusFailed
 			jobErr = err
@@ -610,13 +632,25 @@ func (w *webrunner) setupMate(_ context.Context, writer io.Writer, job *web.Job)
 	hasProxy := false
 
 	if len(w.cfg.Proxies) > 0 {
+		// Priority 1: CLI or global config proxies
 		opts = append(opts, scrapemateapp.WithProxies(w.cfg.Proxies))
 		hasProxy = true
+		log.Printf("job %s: using CLI/config proxies (%d proxies)", job.ID, len(w.cfg.Proxies))
 	} else if len(job.Data.Proxies) > 0 {
+		// Priority 2: API/Web UI job-specific proxies
 		opts = append(opts,
 			scrapemateapp.WithProxies(job.Data.Proxies),
 		)
 		hasProxy = true
+		log.Printf("job %s: using job-specific proxies (%d proxies)", job.ID, len(job.Data.Proxies))
+	} else {
+		// Priority 3: Fallback to .env PROXY variable
+		envProxy := os.Getenv("PROXY")
+		if envProxy != "" {
+			opts = append(opts, scrapemateapp.WithProxies([]string{envProxy}))
+			hasProxy = true
+			log.Printf("job %s: using fallback proxy from .env: %s", job.ID, envProxy)
+		}
 	}
 
 	if !w.cfg.DisablePageReuse {

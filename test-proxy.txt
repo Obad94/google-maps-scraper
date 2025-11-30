@@ -1,0 +1,46 @@
+Test Proxy Usage Instructions
+================================
+
+Method 1: Use a query that returns your location/IP
+----------------------------------------------------
+Create a test job with this search query:
+"what is my ip address"
+
+If the results show your proxy's IP location (not your real location),
+then the proxy is working correctly.
+
+
+Method 2: Monitor with Network Tools
+-------------------------------------
+Windows: Use Resource Monitor or Wireshark
+1. Open Resource Monitor (resmon.exe)
+2. Go to Network tab
+3. Run your scraper
+4. Look for connections - you should ONLY see connections to your proxy server
+   (p.webshare.io:80 in your case)
+5. You should NOT see direct connections to google.com or googleapis.com
+
+
+Method 3: Test with Blocked Proxy
+----------------------------------
+1. Set PROXY to an invalid address in .env:
+   PROXY=http://invalid-proxy-test:9999
+
+2. Run the application
+3. It should FAIL to connect
+4. If it succeeds, your real IP is being used (BAD!)
+
+
+Method 4: Check Proxy Logs
+---------------------------
+If your proxy provider (webshare.io) provides logs:
+1. Check their dashboard for request logs
+2. Verify requests are coming through during your scraping
+3. This confirms traffic is going through the proxy
+
+
+Method 5: Use a Geo-Specific Test
+----------------------------------
+1. Set a proxy from a specific country (e.g., US proxy)
+2. Search for "restaurants near me" with no location set
+3. Results should be from the proxy's location, not yours

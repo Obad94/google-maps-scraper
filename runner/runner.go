@@ -366,6 +366,13 @@ func ParseConfig() *Config {
 			// It's a comma-separated string
 			cfg.Proxies = strings.Split(proxies, ",")
 		}
+	} else {
+		// Fallback to PROXY environment variable if no CLI proxy is provided
+		envProxy := os.Getenv("PROXY")
+		if envProxy != "" {
+			cfg.Proxies = []string{envProxy}
+			fmt.Fprintf(os.Stderr, "Using fallback proxy from .env: %s\n", envProxy)
+		}
 	}
 
 	if cfg.AwsAccessKey != "" && cfg.AwsSecretKey != "" && cfg.AwsRegion != "" {
