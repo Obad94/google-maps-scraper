@@ -43,41 +43,48 @@ func New(cfg *runner.Config) (runner.Runner, error) {
 		return nil, err
 	}
 
-	const dbfname = "jobs.db"
-
-	dbpath := filepath.Join(cfg.DataFolder, dbfname)
-
-	// Initialize SQLite database for jobs
-	db, err := sqlite.InitDB(dbpath)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create repositories for jobs (always SQLite)
-	repo := sqlite.NewWithDB(db)
-	svc := web.NewService(repo, cfg.DataFolder)
-
-	// Create API key repository and service (SQLite)
-	apiKeyRepo := sqlite.NewAPIKeyRepository(db)
-	apiKeySvc := web.NewAPIKeyService(apiKeyRepo)
-
-	// Check if PostgreSQL is configured for auth (DATABASE_URL environment variable)
+	// Check if PostgreSQL is configured (DATABASE_URL environment variable)
+	var repo web.JobRepository
+	var apiKeyRepo web.APIKeyRepository
 	var authSvc *web.AuthService
+	var svc *web.Service
+	var apiKeySvc *web.APIKeyService
+
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL != "" {
-		log.Printf("PostgreSQL configured for authentication (DATABASE_URL found)")
+		log.Printf("PostgreSQL configured (DATABASE_URL found)")
 		pgDB, err := openPostgresConn(databaseURL)
 		if err != nil {
-			log.Printf("WARNING: Failed to connect to PostgreSQL: %v. Auth features disabled.", err)
-		} else {
-			// Create PostgreSQL auth repositories
-			userRepo := postgres.NewUserRepository(pgDB)
-			sessionRepo := postgres.NewUserSessionRepository(pgDB)
-			authSvc = web.NewAuthService(userRepo, sessionRepo, nil) // nil for audit repo
-			log.Printf("PostgreSQL authentication enabled")
+			return nil, fmt.Errorf("failed to connect to PostgreSQL: %w", err)
 		}
+
+		// Use PostgreSQL for everything
+		repo = postgres.NewJobRepository(pgDB)
+		apiKeyRepo = postgres.NewAPIKeyRepository(pgDB)
+		svc = web.NewService(repo, cfg.DataFolder)
+		apiKeySvc = web.NewAPIKeyService(apiKeyRepo)
+
+		// Create PostgreSQL auth repositories
+		userRepo := postgres.NewUserRepository(pgDB)
+		sessionRepo := postgres.NewUserSessionRepository(pgDB)
+		authSvc = web.NewAuthService(userRepo, sessionRepo, nil) // nil for audit repo
+		log.Printf("PostgreSQL enabled for all data (jobs, API keys, authentication)")
 	} else {
-		log.Printf("No DATABASE_URL configured. Using SQLite for authentication.")
+		// Fallback to SQLite
+		log.Printf("No DATABASE_URL configured. Using SQLite.")
+		const dbfname = "jobs.db"
+		dbpath := filepath.Join(cfg.DataFolder, dbfname)
+
+		db, err := sqlite.InitDB(dbpath)
+		if err != nil {
+			return nil, err
+		}
+
+		repo = sqlite.NewWithDB(db)
+		svc = web.NewService(repo, cfg.DataFolder)
+		apiKeyRepo = sqlite.NewAPIKeyRepository(db)
+		apiKeySvc = web.NewAPIKeyService(apiKeyRepo)
+
 		// Use SQLite for auth
 		userRepo := sqlite.NewUserRepository(db)
 		sessionRepo := sqlite.NewSessionRepository(db)

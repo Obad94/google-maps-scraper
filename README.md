@@ -997,9 +997,7 @@ MSYS_NO_PATHCONV=1 docker run --rm --shm-size=1g \
   "depth": 10, 
   "email": true,
   "max_time": 10000, 
-  "proxies": [
-    "" 
-  ]
+  "proxies": []
 }
 
 

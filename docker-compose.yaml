@@ -1,0 +1,115 @@
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:15.2-alpine
+    container_name: gmaps-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: google_maps_scraper
+    ports:
+      - '127.0.0.1:5433:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - gmaps-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d google_maps_scraper"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Database Migrations
+  migrate:
+    image: migrate/migrate
+    container_name: gmaps-migrate
+    volumes:
+      - ./scripts/migrations:/migrations
+    command:
+      - "-path"
+      - "/migrations"
+      - "-database"
+      - "postgres://postgres:postgres@db:5432/google_maps_scraper?sslmode=disable"
+      - "up"
+    networks:
+      - gmaps-network
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: on-failure
+
+  # Google Maps Scraper Application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: gmaps-scraper
+    environment:
+      # Database Configuration
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/google_maps_scraper?sslmode=disable
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: google_maps_scraper
+      POSTGRES_SSLMODE: disable
+
+      # Application Configuration
+      GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
+      PROXY: ${PROXY:-}
+
+      # Browser Configuration
+      PLAYWRIGHT_BROWSERS_PATH: /opt/browsers
+      PLAYWRIGHT_DRIVER_PATH: /opt
+    ports:
+      - "8080:8080"
+    volumes:
+      # Data folder for results and SQLite fallback
+      - app_data:/data
+      # Optional: Mount local data folder
+      # - ./gmapsdata:/data
+    command: ["-web", "-addr", ":8080", "-data-folder", "/data"]
+    networks:
+      - gmaps-network
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:8080/ || exit 0"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+    # Resource limits (adjust based on your needs)
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+networks:
+  gmaps-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  app_data:
+    driver: local

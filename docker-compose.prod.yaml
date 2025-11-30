@@ -1,0 +1,214 @@
+version: '3.8'
+
+# Production Docker Compose Configuration
+# This file includes additional security, monitoring, and production features
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:15.2-alpine
+    container_name: gmaps-postgres-prod
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-google_maps_scraper}
+      # Performance tuning
+      POSTGRES_SHARED_BUFFERS: ${POSTGRES_SHARED_BUFFERS:-256MB}
+      POSTGRES_EFFECTIVE_CACHE_SIZE: ${POSTGRES_EFFECTIVE_CACHE_SIZE:-1GB}
+      POSTGRES_MAX_CONNECTIONS: ${POSTGRES_MAX_CONNECTIONS:-100}
+    ports:
+      # Only expose to localhost in production
+      - '127.0.0.1:5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Optional: Custom PostgreSQL configuration
+      # - ./config/postgresql.conf:/etc/postgresql/postgresql.conf
+    networks:
+      - gmaps-network
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-google_maps_scraper}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+    # Security: Run as non-root user
+    user: postgres
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+  # Database Migrations
+  migrate:
+    image: migrate/migrate
+    container_name: gmaps-migrate-prod
+    volumes:
+      - ./scripts/migrations:/migrations:ro
+    command:
+      - "-path"
+      - "/migrations"
+      - "-database"
+      - "postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-google_maps_scraper}?sslmode=disable"
+      - "up"
+    networks:
+      - gmaps-network
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: on-failure
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # Google Maps Scraper Application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - BUILDKIT_INLINE_CACHE=1
+    image: google-maps-scraper:latest
+    container_name: gmaps-scraper-prod
+    environment:
+      # Database Configuration
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-google_maps_scraper}?sslmode=disable
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-google_maps_scraper}
+      POSTGRES_SSLMODE: disable
+
+      # Application Configuration
+      GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:?GOOGLE_MAPS_API_KEY is required}
+      PROXY: ${PROXY:-}
+
+      # Browser Configuration
+      PLAYWRIGHT_BROWSERS_PATH: /opt/browsers
+      PLAYWRIGHT_DRIVER_PATH: /opt
+
+      # Security
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+
+      # Performance
+      MAX_CONCURRENT_JOBS: ${MAX_CONCURRENT_JOBS:-5}
+      JOB_TIMEOUT: ${JOB_TIMEOUT:-60}
+
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+
+    ports:
+      # For production, use reverse proxy (nginx/traefik) and don't expose directly
+      # Or use only localhost binding
+      - "127.0.0.1:8080:8080"
+    volumes:
+      # Data folder for results
+      - app_data:/data
+      # Optional: Mount logs directory
+      - ./logs:/logs
+    command: ["-web", "-addr", ":8080", "-data-folder", "/data"]
+    networks:
+      - gmaps-network
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:8080/ || exit 0"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "10"
+    # Security hardening
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    # Resource limits (production-grade)
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 1G
+      # Restart policy
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+
+  # Optional: Nginx Reverse Proxy for production
+  nginx:
+    image: nginx:alpine
+    container_name: gmaps-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./config/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./config/ssl:/etc/nginx/ssl:ro
+      - nginx_cache:/var/cache/nginx
+    networks:
+      - gmaps-network
+    depends_on:
+      - app
+    restart: always
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+    profiles:
+      - with-nginx  # Only start with: docker-compose --profile with-nginx up
+
+networks:
+  gmaps-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  postgres_data:
+    driver: local
+    # Optional: Use named volume with backup strategy
+    # driver_opts:
+    #   type: none
+    #   device: /path/to/postgres/data
+    #   o: bind
+  app_data:
+    driver: local
+  nginx_cache:
+    driver: local

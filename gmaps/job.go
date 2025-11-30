@@ -234,6 +234,26 @@ func (j *GmapJob) BrowserActions(ctx context.Context, page playwright.Page) scra
 
 	clickRejectCookiesIfRequired(page)
 
+	// Check if we were redirected to a consent page after initial navigation
+	currentURL := page.URL()
+	if strings.Contains(currentURL, "consent.google.com") {
+		fmt.Printf("DEBUG: Redirected to consent page, attempting to handle and retry...\n")
+		handleConsentPage(page)
+
+		// After handling consent, retry navigation to original URL
+		pageResponse, err = page.Goto(j.GetFullURL(), playwright.PageGotoOptions{
+			WaitUntil: playwright.WaitUntilStateDomcontentloaded,
+			Timeout:   playwright.Float(15000),
+		})
+		if err != nil {
+			resp.Error = fmt.Errorf("failed to navigate after consent: %w", err)
+			return resp
+		}
+
+		// Check for consent again after retry (in case of persistent redirects)
+		clickRejectCookiesIfRequired(page)
+	}
+
 	const defaultTimeout = 5000
 
 	err = page.WaitForURL(page.URL(), playwright.PageWaitForURLOptions{
@@ -367,8 +387,16 @@ func waitUntilURLContains(ctx context.Context, page playwright.Page, s string) b
 }
 
 func clickRejectCookiesIfRequired(page playwright.Page) {
-	sel := `form[action="https://consent.google.com/save"] input[type="submit"]`
+	// Check if we're on a consent page
+	currentURL := page.URL()
+	if strings.Contains(currentURL, "consent.google.com") {
+		fmt.Printf("DEBUG: Detected Google consent page: %s\n", currentURL)
+		handleConsentPage(page)
+		return
+	}
 
+	// Original selector for standard cookie banner
+	sel := `form[action="https://consent.google.com/save"] input[type="submit"]`
 	locator := page.Locator(sel)
 
 	count, err := locator.Count()
@@ -383,6 +411,68 @@ func clickRejectCookiesIfRequired(page playwright.Page) {
 	_ = locator.First().Click(playwright.LocatorClickOptions{
 		Timeout: playwright.Float(2000),
 	})
+}
+
+// handleConsentPage handles GDPR consent pages that appear in some regions
+func handleConsentPage(page playwright.Page) {
+	// List of selectors to try for the "Accept" button
+	// These cover various consent page formats across different languages
+	acceptSelectors := []string{
+		// Standard accept all button
+		`button:has-text("Accept all")`,
+		`button:has-text("Accept")`,
+		`button:has-text("Agree")`,
+		`button:has-text("I agree")`,
+		// Multi-language variants
+		`button:has-text("Sprejmi")`, // Slovenian
+		`button:has-text("Acepto")`,  // Spanish
+		`button:has-text("Akzeptieren")`, // German
+		`button:has-text("Accepter")`, // French
+		`button:has-text("Accetta")`, // Italian
+		`button:has-text("Aceitar")`, // Portuguese
+		// Form-based consent
+		`form[action*="consent.google.com"] button[type="submit"]`,
+		`form[action*="consent.google.com"] input[type="submit"]`,
+		// Aria labels and roles
+		`button[aria-label*="Accept"]`,
+		`button[aria-label*="agree"]`,
+		// Common button IDs and classes
+		`button#accept`,
+		`button.accept`,
+		`button[name="agree"]`,
+		// Reject/Continue options (fallback)
+		`button:has-text("Reject all")`,
+		`button:has-text("Continue")`,
+	}
+
+	fmt.Printf("DEBUG: Attempting to handle consent page...\n")
+
+	for i, selector := range acceptSelectors {
+		locator := page.Locator(selector)
+		count, err := locator.Count()
+		if err != nil {
+			continue
+		}
+
+		if count > 0 {
+			fmt.Printf("DEBUG: Found consent button with selector #%d: %s\n", i+1, selector)
+			err = locator.First().Click(playwright.LocatorClickOptions{
+				Timeout: playwright.Float(5000),
+			})
+			if err == nil {
+				fmt.Printf("DEBUG: Successfully clicked consent button\n")
+				// Wait for navigation after clicking
+				page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{
+					State:   playwright.LoadStateDomcontentloaded,
+					Timeout: playwright.Float(10000),
+				})
+				return
+			}
+			fmt.Printf("DEBUG: Failed to click button: %v\n", err)
+		}
+	}
+
+	fmt.Printf("WARNING: Could not find or click any consent button, continuing anyway\n")
 }
 
 // scrollCallback is called after each scroll iteration with the current page content

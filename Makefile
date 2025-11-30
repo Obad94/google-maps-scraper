@@ -36,3 +36,55 @@ cross-compile: ## cross compiles the application
 	GOOS=linux GOARCH=amd64 go build -o bin/$(APP_NAME)-${VERSION}-linux-amd64
 	GOOS=darwin GOARCH=amd64 go build -o bin/$(APP_NAME)-${VERSION}-darwin-amd64
 	GOOS=windows GOARCH=amd64 go build -o bin/$(APP_NAME)-${VERSION}-windows-amd64.exe
+
+# Docker commands
+docker-build: ## builds the docker image
+	docker build -t google-maps-scraper:latest -t google-maps-scraper:$(VERSION) .
+
+docker-build-nocache: ## builds the docker image without cache
+	docker build --no-cache -t google-maps-scraper:latest -t google-maps-scraper:$(VERSION) .
+
+docker-up: ## starts docker-compose services in development mode
+	docker-compose up -d
+
+docker-down: ## stops docker-compose services
+	docker-compose down
+
+docker-logs: ## shows docker-compose logs
+	docker-compose logs -f
+
+docker-restart: ## restarts docker-compose services
+	docker-compose restart
+
+docker-rebuild: ## rebuilds and restarts docker-compose services
+	docker-compose up -d --build
+
+docker-clean: ## stops services and removes volumes (⚠️ deletes data)
+	docker-compose down -v
+
+docker-prod-up: ## starts docker-compose services in production mode
+	docker-compose -f docker-compose.prod.yaml up -d
+
+docker-prod-down: ## stops production docker-compose services
+	docker-compose -f docker-compose.prod.yaml down
+
+docker-prod-logs: ## shows production docker-compose logs
+	docker-compose -f docker-compose.prod.yaml logs -f
+
+docker-ps: ## shows running docker containers
+	docker-compose ps
+
+docker-shell-app: ## opens shell in app container
+	docker-compose exec app sh
+
+docker-shell-db: ## opens PostgreSQL shell
+	docker-compose exec db psql -U postgres -d google_maps_scraper
+
+docker-backup-db: ## backs up the PostgreSQL database
+	docker-compose exec db pg_dump -U postgres google_maps_scraper > backup_$$(date +%Y%m%d_%H%M%S).sql
+
+docker-stats: ## shows docker container resource usage
+	docker stats
+
+docker-prune: ## removes unused docker resources
+	docker system prune -a --volumes

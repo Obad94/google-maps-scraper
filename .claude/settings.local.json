@@ -42,7 +42,9 @@
       "Bash(powershell \"(Get-Content auth_handlers.go) -replace ''apiError\\{Error:'', ''apiError{Code: http.StatusBadRequest, Message:'' | Set-Content auth_handlers.go\")",
       "Bash(powershell \"(Get-Content organization_handlers.go) -replace ''apiError\\{Error:'', ''apiError{Code: http.StatusBadRequest, Message:'' | Set-Content organization_handlers.go\")",
       "Bash(powershell \"(Get-Content member_handlers.go) -replace ''apiError\\{Error:'', ''apiError{Code: http.StatusBadRequest, Message:'' | Set-Content member_handlers.go\")",
-      "Bash(powershell \"(Get-Content middleware.go) -replace ''apiError\\{Error:'', ''apiError{Code: http.StatusUnauthorized, Message:'' | Set-Content middleware.go\")"
+      "Bash(powershell \"(Get-Content middleware.go) -replace ''apiError\\{Error:'', ''apiError{Code: http.StatusUnauthorized, Message:'' | Set-Content middleware.go\")",
+      "Bash(docker-compose:*)",
+      "Bash(SESSION_SECRET=test POSTGRES_PASSWORD=test GOOGLE_MAPS_API_KEY=test docker-compose:*)"
     ],
     "deny": [],
     "ask": []

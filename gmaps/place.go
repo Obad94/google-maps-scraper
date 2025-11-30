@@ -182,6 +182,26 @@ func (j *PlaceJob) BrowserActions(ctx context.Context, page playwright.Page) scr
 
 	clickRejectCookiesIfRequired(page)
 
+	// Check if we were redirected to a consent page after initial navigation
+	currentURL := page.URL()
+	if strings.Contains(currentURL, "consent.google.com") {
+		fmt.Printf("DEBUG: Redirected to consent page, attempting to handle and retry...\n")
+		handleConsentPage(page)
+
+		// After handling consent, retry navigation to original URL
+		pageResponse, err = page.Goto(j.GetURL(), playwright.PageGotoOptions{
+			WaitUntil: playwright.WaitUntilStateDomcontentloaded,
+			Timeout:   playwright.Float(15000),
+		})
+		if err != nil {
+			resp.Error = fmt.Errorf("failed to navigate after consent: %w", err)
+			return resp
+		}
+
+		// Check for consent again after retry (in case of persistent redirects)
+		clickRejectCookiesIfRequired(page)
+	}
+
 	const defaultTimeout = 5000
 
 	err = page.WaitForURL(page.URL(), playwright.PageWaitForURLOptions{

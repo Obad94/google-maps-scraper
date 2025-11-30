@@ -110,10 +110,12 @@ func NewWithAPIKeysAndAuth(svc *Service, apiKeySvc *APIKeyService, authSvc *Auth
 	// Main page - protected
 	mux.HandleFunc("/", ans.WebAuthMiddleware(ans.index))
 
-	// api routes
+	// api routes (public - no auth required)
 	mux.HandleFunc("/api/docs", ans.redocHandler)
 	mux.HandleFunc("/api/swagger", ans.swaggerHandler)
-	mux.HandleFunc("/api/v1/jobs", func(w http.ResponseWriter, r *http.Request) {
+
+	// Protected API routes - require authentication
+	mux.Handle("/api/v1/jobs", ans.SessionAuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:
 			ans.apiScrape(w, r)
@@ -127,9 +129,9 @@ func NewWithAPIKeysAndAuth(svc *Service, apiKeySvc *APIKeyService, authSvc *Auth
 
 			renderJSON(w, http.StatusMethodNotAllowed, ans)
 		}
-	})
+	})))
 
-	mux.HandleFunc("/api/v1/jobs/{id}", func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/api/v1/jobs/{id}", ans.SessionAuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r = requestWithID(r)
 
 		switch r.Method {
@@ -145,9 +147,9 @@ func NewWithAPIKeysAndAuth(svc *Service, apiKeySvc *APIKeyService, authSvc *Auth
 
 			renderJSON(w, http.StatusMethodNotAllowed, ans)
 		}
-	})
+	})))
 
-	mux.HandleFunc("/api/v1/jobs/{id}/download", func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/api/v1/jobs/{id}/download", ans.SessionAuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r = requestWithID(r)
 
 		if r.Method != http.MethodGet {
@@ -162,9 +164,9 @@ func NewWithAPIKeysAndAuth(svc *Service, apiKeySvc *APIKeyService, authSvc *Auth
 		}
 
 		ans.download(w, r)
-	})
+	})))
 
-	mux.HandleFunc("/api/v1/jobs/{id}/results", func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/api/v1/jobs/{id}/results", ans.SessionAuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r = requestWithID(r)
 
 		if r.Method != http.MethodGet {
@@ -179,9 +181,9 @@ func NewWithAPIKeysAndAuth(svc *Service, apiKeySvc *APIKeyService, authSvc *Auth
 		}
 
 		ans.apiGetResults(w, r)
-	})
+	})))
 
-	mux.HandleFunc("/api/v1/jobs/{id}/retry", func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/api/v1/jobs/{id}/retry", ans.SessionAuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r = requestWithID(r)
 
 		if r.Method != http.MethodPost {
@@ -196,9 +198,9 @@ func NewWithAPIKeysAndAuth(svc *Service, apiKeySvc *APIKeyService, authSvc *Auth
 		}
 
 		ans.apiRetryJob(w, r)
-	})
+	})))
 
-	mux.HandleFunc("/api/v1/jobs/import", func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/api/v1/jobs/import", ans.SessionAuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			ans := apiError{
 				Code:    http.StatusMethodNotAllowed,
@@ -211,11 +213,11 @@ func NewWithAPIKeysAndAuth(svc *Service, apiKeySvc *APIKeyService, authSvc *Auth
 		}
 
 		ans.apiImportData(w, r)
-	})
+	})))
 
-	// API Key Management routes (requires apiKeySvc to be set)
+	// API Key Management routes (requires apiKeySvc to be set) - Protected
 	if ans.apiKeySvc != nil {
-		mux.HandleFunc("/api/v1/apikeys", func(w http.ResponseWriter, r *http.Request) {
+		mux.Handle("/api/v1/apikeys", ans.SessionAuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.Method {
 			case http.MethodPost:
 				ans.apiCreateAPIKey(w, r)
@@ -227,9 +229,9 @@ func NewWithAPIKeysAndAuth(svc *Service, apiKeySvc *APIKeyService, authSvc *Auth
 					Message: "Method not allowed",
 				})
 			}
-		})
+		})))
 
-		mux.HandleFunc("/api/v1/apikeys/{id}", func(w http.ResponseWriter, r *http.Request) {
+		mux.Handle("/api/v1/apikeys/{id}", ans.SessionAuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			r = requestWithID(r)
 
 			switch r.Method {
@@ -243,9 +245,9 @@ func NewWithAPIKeysAndAuth(svc *Service, apiKeySvc *APIKeyService, authSvc *Auth
 					Message: "Method not allowed",
 				})
 			}
-		})
+		})))
 
-		mux.HandleFunc("/api/v1/apikeys/{id}/revoke", func(w http.ResponseWriter, r *http.Request) {
+		mux.Handle("/api/v1/apikeys/{id}/revoke", ans.SessionAuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			r = requestWithID(r)
 
 			if r.Method != http.MethodPost {
@@ -257,7 +259,7 @@ func NewWithAPIKeysAndAuth(svc *Service, apiKeySvc *APIKeyService, authSvc *Auth
 			}
 
 			ans.apiRevokeAPIKey(w, r)
-		})
+		})))
 
 		// Web UI routes for API key management - protected
 		mux.HandleFunc("/apikeys", ans.WebAuthMiddleware(ans.apiKeysPage))
