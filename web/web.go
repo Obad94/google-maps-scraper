@@ -315,6 +315,7 @@ func NewWithAPIKeysAndAuth(svc *Service, apiKeySvc *APIKeyService, authSvc *Auth
 
 // applyAPIKeyAuth wraps the handler with API key authentication for API routes
 // It only applies authentication to routes starting with /api/v1/ (except /api/docs and /api/swagger)
+// It also accepts session-based authentication as a fallback for web UI users
 func (s *Server) applyAPIKeyAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Check if this is an API route that requires authentication
@@ -336,6 +337,21 @@ func (s *Server) applyAPIKeyAuth(next http.Handler) http.Handler {
 		// Apply authentication to all other API routes
 		ctx := r.Context()
 
+		// First, try to validate session token (for web UI users)
+		if s.authSvc != nil {
+			sessionToken := extractSessionToken(r)
+			if sessionToken != "" {
+				user, _, err := s.authSvc.ValidateSession(ctx, sessionToken)
+				if err == nil {
+					// Valid session, inject user into context and proceed
+					ctx = context.WithValue(ctx, contextKeyUser, user)
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
+				}
+			}
+		}
+
+		// If no valid session, try API key authentication
 		// Extract API key from request
 		apiKey := extractAPIKey(r)
 
