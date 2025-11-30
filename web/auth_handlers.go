@@ -121,16 +121,29 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user := getUserFromContext(r.Context())
-	if user == nil {
-		renderJSON(w, http.StatusUnauthorized, apiError{Code: http.StatusBadRequest, Message: "Unauthorized"})
+	// Check if auth service is configured
+	if s.authSvc == nil {
+		// Clear cookie anyway
+		http.SetCookie(w, &http.Cookie{
+			Name:     "session_token",
+			Value:    "",
+			Path:     "/",
+			HttpOnly: true,
+			MaxAge:   -1,
+		})
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
-	// Logout all sessions
-	if err := s.authSvc.LogoutAll(r.Context(), user.ID); err != nil {
-		renderJSON(w, http.StatusInternalServerError, apiError{Code: http.StatusBadRequest, Message: err.Error()})
-		return
+	// Extract token from cookie/header
+	token := extractSessionToken(r)
+	if token != "" {
+		// Validate and get user from token
+		user, _, err := s.authSvc.ValidateSession(r.Context(), token)
+		if err == nil && user != nil {
+			// Logout all sessions for this user
+			_ = s.authSvc.LogoutAll(r.Context(), user.ID)
+		}
 	}
 
 	// Clear cookie
