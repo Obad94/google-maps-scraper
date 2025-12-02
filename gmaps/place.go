@@ -181,6 +181,9 @@ func (j *PlaceJob) BrowserActions(ctx context.Context, page playwright.Page) scr
 		return resp
 	}
 
+	// Wait 1 second for any final redirects to complete (Google Maps SPAs)
+	page.WaitForTimeout(1000)
+
 	clickRejectCookiesIfRequired(page)
 
 	// Check if we were redirected to a consent page after initial navigation
@@ -198,6 +201,9 @@ func (j *PlaceJob) BrowserActions(ctx context.Context, page playwright.Page) scr
 			resp.Error = fmt.Errorf("failed to navigate after consent: %w", err)
 			return resp
 		}
+
+		// Wait for final redirect after consent
+		page.WaitForTimeout(1000)
 
 		// Check for consent again after retry (in case of persistent redirects)
 		clickRejectCookiesIfRequired(page)

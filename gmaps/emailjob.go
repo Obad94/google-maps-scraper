@@ -112,44 +112,49 @@ func (j *EmailExtractJob) BrowserActions(ctx context.Context, page playwright.Pa
 	log := scrapemate.GetLoggerFromContext(ctx)
 	log.Info("Processing email job", "jobid", j.ID, "url", j.GetURL())
 
+	// Navigate with networkidle to ensure all redirects and resources are loaded
 	pageResponse, err := page.Goto(j.GetURL(), playwright.PageGotoOptions{
-		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
-		Timeout:   playwright.Float(60000), // 60 second timeout for website loading with proxies
+		WaitUntil: playwright.WaitUntilStateNetworkidle, // Wait for final redirect and network to be idle
+		Timeout:   playwright.Float(60000),               // 60 second timeout for website loading with proxies
 	})
 	if err != nil {
-		// Distinguish between permanent and temporary failures
+		// Classify errors as permanent vs retryable
 		errorStr := err.Error()
+
+		// Permanent errors (DNS, SSL, redirect loops, connection refused)
 		isPermanentError := strings.Contains(errorStr, "ERR_NAME_NOT_RESOLVED") ||
 			strings.Contains(errorStr, "ERR_CONNECTION_REFUSED") ||
 			strings.Contains(errorStr, "ERR_ADDRESS_UNREACHABLE") ||
 			strings.Contains(errorStr, "ERR_TOO_MANY_REDIRECTS") ||
-			strings.Contains(errorStr, "SSL") ||
-			strings.Contains(errorStr, "ERR_CERT_")
+			strings.Contains(errorStr, "ERR_CERT_") ||
+			strings.Contains(errorStr, "SSL_PROTOCOL_ERROR") ||
+			strings.Contains(errorStr, "ERR_INVALID_URL")
+
+		// Retryable errors (timeouts, 502/503, network issues)
+		isRetryableError := strings.Contains(errorStr, "timeout") ||
+			strings.Contains(errorStr, "Timeout") ||
+			strings.Contains(errorStr, "502") ||
+			strings.Contains(errorStr, "503") ||
+			strings.Contains(errorStr, "net::ERR_SOCKET_NOT_CONNECTED") ||
+			strings.Contains(errorStr, "net::ERR_CONNECTION_RESET") ||
+			strings.Contains(errorStr, "interrupted")
 
 		if isPermanentError {
 			log.Info("Email extraction failed - permanent error (DNS/SSL/redirect/connection)", "jobid", j.ID, "error", err)
-			// Set MaxRetries to 0 for this specific job to avoid wasting retries
-			j.MaxRetries = 0
+			j.MaxRetries = 0 // Don't retry permanent errors
+		} else if isRetryableError {
+			log.Info("Email extraction navigation failed - retryable error (timeout/server/network)", "jobid", j.ID, "error", err, "retriesLeft", j.MaxRetries)
+			// Let scrapemate retry with exponential backoff
 		} else {
-			log.Info("Email extraction navigation failed - may be retryable", "jobid", j.ID, "error", err)
+			log.Info("Email extraction navigation failed - unknown error", "jobid", j.ID, "error", err)
 		}
 		resp.Error = err
 
 		return resp
 	}
 
-	const defaultTimeout = 5000
-
-	err = page.WaitForURL(page.URL(), playwright.PageWaitForURLOptions{
-		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
-		Timeout:   playwright.Float(defaultTimeout),
-	})
-	if err != nil {
-		log.Info("Email extraction URL wait failed", "jobid", j.ID, "error", err)
-		resp.Error = err
-
-		return resp
-	}
+	// Wait additional 2 seconds for any lazy-loaded content or final JS execution
+	page.WaitForTimeout(2000)
 
 	resp.URL = pageResponse.URL()
 	resp.StatusCode = pageResponse.Status()
@@ -161,12 +166,30 @@ func (j *EmailExtractJob) BrowserActions(ctx context.Context, page playwright.Pa
 
 	// Check for HTTP error status codes (4xx and 5xx)
 	if resp.StatusCode >= 400 {
-		log.Info("Email extraction failed - HTTP error", "jobid", j.ID, "statusCode", resp.StatusCode)
-		resp.Error = fmt.Errorf("status code %d", resp.StatusCode)
-		// Don't retry for 404 (Not Found), 410 (Gone), 403 (Forbidden) - these are permanent
-		if resp.StatusCode == 404 || resp.StatusCode == 410 || resp.StatusCode == 403 {
-			j.MaxRetries = 0
+		// Classify HTTP errors as permanent vs retryable
+		isPermanentHTTPError := resp.StatusCode == 404 || // Not Found
+			resp.StatusCode == 410 || // Gone
+			resp.StatusCode == 403 || // Forbidden (blocked/bot detected)
+			resp.StatusCode == 451 || // Unavailable For Legal Reasons
+			resp.StatusCode == 401 // Unauthorized
+
+		isRetryableHTTPError := resp.StatusCode == 502 || // Bad Gateway (temporary server issue)
+			resp.StatusCode == 503 || // Service Unavailable (temporary)
+			resp.StatusCode == 504 || // Gateway Timeout (temporary)
+			resp.StatusCode == 429 || // Too Many Requests (rate limit, retry later)
+			resp.StatusCode == 408 // Request Timeout
+
+		if isPermanentHTTPError {
+			log.Info("Email extraction failed - permanent HTTP error", "jobid", j.ID, "statusCode", resp.StatusCode)
+			j.MaxRetries = 0 // Don't waste retries on permanent errors
+		} else if isRetryableHTTPError {
+			log.Info("Email extraction failed - retryable HTTP error", "jobid", j.ID, "statusCode", resp.StatusCode, "retriesLeft", j.MaxRetries)
+			// Let scrapemate retry with exponential backoff
+		} else {
+			log.Info("Email extraction failed - HTTP error", "jobid", j.ID, "statusCode", resp.StatusCode)
 		}
+
+		resp.Error = fmt.Errorf("status code %d", resp.StatusCode)
 		return resp
 	}
 
