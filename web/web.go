@@ -841,9 +841,10 @@ func (s *Server) showMap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Only allow map view for completed jobs
-	if job.Status != StatusOK {
-		http.Error(w, "Map view is only available for completed jobs", http.StatusBadRequest)
+	// Allow map view for completed jobs OR failed jobs with partial results
+	hasResults := s.svc.HasResults(job.ID)
+	if job.Status != StatusOK && !(job.Status == StatusFailed && hasResults) {
+		http.Error(w, "Map view is only available for completed jobs or failed jobs with partial results", http.StatusBadRequest)
 
 		return
 	}
