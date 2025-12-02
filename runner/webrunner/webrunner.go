@@ -266,10 +266,11 @@ func (w *webrunner) recoverStuckJobs(ctx context.Context) error {
 			for i := range workingJobs {
 				job := &workingJobs[i]
 
-				// Calculate timeout: max of 1 hour or 2x the job's MaxTime
-				timeout := time.Hour
+				// Calculate timeout: max of 2 hours or 3x the job's MaxTime
+				// Increased from 1h to 2h to prevent false positives on long-running jobs
+				timeout := 2 * time.Hour
 				if job.Data.MaxTime > 0 {
-					jobTimeout := 2 * job.Data.MaxTime
+					jobTimeout := 3 * job.Data.MaxTime
 					if jobTimeout > timeout {
 						timeout = jobTimeout
 					}
