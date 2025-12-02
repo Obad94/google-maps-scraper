@@ -292,7 +292,7 @@ func (j *NearbySearchJob) BrowserActions(ctx context.Context, page playwright.Pa
 
 	pageResponse, err := page.Goto(searchURL, playwright.PageGotoOptions{
 		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
-		Timeout:   playwright.Float(30000),
+		Timeout:   playwright.Float(60000), // 60 seconds for slow proxy connections
 	})
 
 	if err != nil {

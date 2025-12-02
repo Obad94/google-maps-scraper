@@ -313,10 +313,10 @@ func (j *HybridJob) BrowserActions(ctx context.Context, page playwright.Page) sc
 	log := scrapemate.GetLoggerFromContext(ctx)
 	log.Info(fmt.Sprintf("[HYBRID] Phase 1: Navigating to search for '%s'", j.Query))
 
-	// Navigate to the search URL
+	// Navigate to the search URL (increased timeout for proxy scenarios)
 	pageResponse, err := page.Goto(j.GetFullURL(), playwright.PageGotoOptions{
 		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
-		Timeout:   playwright.Float(30000),
+		Timeout:   playwright.Float(60000), // 60 seconds for slow proxy connections
 	})
 	if err != nil {
 		resp.Error = fmt.Errorf("failed to navigate: %w", err)

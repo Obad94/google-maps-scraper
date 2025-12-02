@@ -114,7 +114,7 @@ func (j *EmailExtractJob) BrowserActions(ctx context.Context, page playwright.Pa
 
 	pageResponse, err := page.Goto(j.GetURL(), playwright.PageGotoOptions{
 		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
-		Timeout:   playwright.Float(30000), // 30 second timeout for website loading (increased from 20s)
+		Timeout:   playwright.Float(60000), // 60 second timeout for website loading with proxies
 	})
 	if err != nil {
 		// Distinguish between permanent and temporary failures
