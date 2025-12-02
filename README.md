@@ -983,7 +983,7 @@ MSYS_NO_PATHCONV=1 docker run --rm --shm-size=1g \
 ./google-maps-scraper -nearby-mode -geo "21.030625,105.819332" -input gmapsdata/categories.txt -results gmapsdata/nearby_results_final.csv -depth 17 -email -zoom 500m  
 
 # API calling to create a new job:
-  {
+{
   "name": "Job 1", 
   "keywords": [
     "restaurant" 
@@ -992,9 +992,9 @@ MSYS_NO_PATHCONV=1 docker run --rm --shm-size=1g \
   "zoom": 20, 
   "lat": "21.030625", 
   "lon": "105.819332", 
-  "fast_mode": true,
-  "radius": 100, 
-  "depth": 10, 
+  "browserapi_mode": true,
+  "radius": 10000, 
+  "depth": 1, 
   "email": true,
   "max_time": 10000, 
   "proxies": []
