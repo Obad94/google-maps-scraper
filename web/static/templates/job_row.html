@@ -4,10 +4,13 @@
     <td>{{.Date}}</td>
     <td>
         <span class="status-indicator status-{{.Status}}">{{.Status}}</span>
+        {{ if and (eq .Status "failed") .HasResults }}
+            <span class="partial-results-indicator" title="Partial results available before failure">⚠️ Partial</span>
+        {{ end }}
     </td>
     <td>
-        {{ if eq .Status "ok" }}
-            <a href="/download?id={{.ID}}" download class="button download-button">Download</a>
+        {{ if or (eq .Status "ok") (and (eq .Status "failed") .HasResults) }}
+            <a href="/download?id={{.ID}}" download class="button download-button">Download{{ if eq .Status "failed" }} (Partial){{ end }}</a>
             <a href="/map?id={{.ID}}" target="_blank" class="button map-button">View on Map</a>
         {{ end }}
         {{ if eq .Status "failed" }}

@@ -113,6 +113,45 @@ func (s *Service) GetCSV(_ context.Context, id string) (string, error) {
 	return datapath, nil
 }
 
+// HasResults checks if a job has results in its CSV file (more than just the header)
+func (s *Service) HasResults(id string) bool {
+	if strings.Contains(id, "/") || strings.Contains(id, "\\") || strings.Contains(id, "..") {
+		return false
+	}
+
+	datapath := filepath.Join(s.dataFolder, id+".csv")
+
+	// Check if file exists
+	fileInfo, err := os.Stat(datapath)
+	if err != nil {
+		return false
+	}
+
+	// Check if file has content (more than just BOM + header, roughly > 500 bytes)
+	if fileInfo.Size() < 500 {
+		return false
+	}
+
+	// Quick check: try to read at least 2 rows (header + 1 data row)
+	file, err := os.Open(datapath)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+
+	// Read header
+	_, err = reader.Read()
+	if err != nil {
+		return false
+	}
+
+	// Try to read at least one data row
+	_, err = reader.Read()
+	return err == nil // If we can read a data row, job has results
+}
+
 func (s *Service) GetResults(_ context.Context, id string) ([]gmaps.Entry, error) {
 	if strings.Contains(id, "/") || strings.Contains(id, "\\") || strings.Contains(id, "..") {
 		return nil, fmt.Errorf("invalid file name")

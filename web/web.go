@@ -662,7 +662,19 @@ func (s *Server) scrape(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_ = tmpl.Execute(w, newJob)
+	// Wrap job with HasResults info
+	jobView := JobView{
+		Job:        newJob,
+		HasResults: s.svc.HasResults(newJob.ID),
+	}
+
+	_ = tmpl.Execute(w, jobView)
+}
+
+// JobView wraps a Job with additional display information
+type JobView struct {
+	Job
+	HasResults bool // Whether the job has results available for download (even if failed)
 }
 
 func (s *Server) getJobs(w http.ResponseWriter, r *http.Request) {
@@ -685,7 +697,16 @@ func (s *Server) getJobs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_ = tmpl.Execute(w, jobs)
+	// Wrap jobs with HasResults info for display
+	jobViews := make([]JobView, len(jobs))
+	for i, job := range jobs {
+		jobViews[i] = JobView{
+			Job:        job,
+			HasResults: s.svc.HasResults(job.ID),
+		}
+	}
+
+	_ = tmpl.Execute(w, jobViews)
 }
 
 func (s *Server) download(w http.ResponseWriter, r *http.Request) {
@@ -788,8 +809,14 @@ func (s *Server) retry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Wrap job with HasResults info
+	jobView := JobView{
+		Job:        job,
+		HasResults: s.svc.HasResults(job.ID),
+	}
+
 	w.Header().Set("Content-Type", "text/html")
-	_ = tmpl.Execute(w, job)
+	_ = tmpl.Execute(w, jobView)
 }
 
 func (s *Server) showMap(w http.ResponseWriter, r *http.Request) {
