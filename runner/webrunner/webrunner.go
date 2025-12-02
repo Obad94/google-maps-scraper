@@ -249,7 +249,7 @@ func (w *webrunner) recoverStuckJobs(ctx context.Context) error {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
-	log.Printf("stuck job recovery mechanism started")
+	log.Printf("stuck job recovery mechanism started (smart detection based on progress)")
 
 	for {
 		select {
@@ -266,26 +266,53 @@ func (w *webrunner) recoverStuckJobs(ctx context.Context) error {
 			for i := range workingJobs {
 				job := &workingJobs[i]
 
-				// Calculate timeout: max of 2 hours or 3x the job's MaxTime
-				// Increased from 1h to 2h to prevent false positives on long-running jobs
-				timeout := 2 * time.Hour
+				// Calculate absolute maximum timeout (24 hours or user-specified MaxTime)
+				absoluteMaxTimeout := 24 * time.Hour
 				if job.Data.MaxTime > 0 {
-					jobTimeout := 3 * job.Data.MaxTime
-					if jobTimeout > timeout {
-						timeout = jobTimeout
-					}
+					absoluteMaxTimeout = job.Data.MaxTime
 				}
 
-				// If job hasn't been updated in timeout period, mark as failed
-				timeSinceUpdate := now.Sub(job.UpdatedAt)
-				if timeSinceUpdate > timeout {
-					log.Printf("recovering stuck job %s (stuck for %v, timeout: %v)", job.ID, timeSinceUpdate, timeout)
+				// Check if job exceeded absolute maximum time
+				timeSinceStart := now.Sub(job.Date)
+				if timeSinceStart > absoluteMaxTimeout {
+					log.Printf("recovering job %s (exceeded absolute max timeout: %v > %v)",
+						job.ID, timeSinceStart, absoluteMaxTimeout)
+					job.Status = web.StatusFailed
+					if err := w.svc.Update(ctx, job); err != nil {
+						log.Printf("failed to recover job %s: %v", job.ID, err)
+					} else {
+						log.Printf("successfully recovered job %s (max timeout)", job.ID)
+					}
+					continue
+				}
+
+				// Smart detection: Check if job is making progress by looking at CSV file updates
+				csvPath := filepath.Join(w.cfg.DataFolder, job.ID+".csv")
+				fileInfo, err := os.Stat(csvPath)
+
+				var timeSinceProgress time.Duration
+				if err == nil {
+					// File exists - check when it was last modified
+					timeSinceProgress = now.Sub(fileInfo.ModTime())
+				} else {
+					// File doesn't exist yet - use database update time
+					timeSinceProgress = now.Sub(job.UpdatedAt)
+				}
+
+				// If no progress for 30 minutes, job is truly stuck
+				// This is aggressive enough to catch hung jobs but won't affect working jobs
+				stuckThreshold := 30 * time.Minute
+				if timeSinceProgress > stuckThreshold {
+					log.Printf("recovering stuck job %s (no progress for %v, threshold: %v)",
+						job.ID, timeSinceProgress, stuckThreshold)
+					log.Printf("job %s details: started %v ago, last progress %v ago",
+						job.ID, timeSinceStart, timeSinceProgress)
 
 					job.Status = web.StatusFailed
 					if err := w.svc.Update(ctx, job); err != nil {
 						log.Printf("failed to recover stuck job %s: %v", job.ID, err)
 					} else {
-						log.Printf("successfully recovered stuck job %s", job.ID)
+						log.Printf("successfully recovered stuck job %s (no progress)", job.ID)
 					}
 				}
 			}
