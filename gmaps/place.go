@@ -21,6 +21,15 @@ type PlaceJob struct {
 	ExtractEmail        bool
 	ExitMonitor         exiter.Exiter
 	ExtractExtraReviews bool
+
+	// Radius filtering
+	FilterByRadius bool
+	CenterLat      float64
+	CenterLon      float64
+	RadiusMeters   float64
+
+	// Google Places API enrichment
+	GoogleMapsAPIKey string
 }
 
 func NewPlaceJob(parentID, langCode, u string, extractEmail, extraExtraReviews bool, opts ...PlaceJobOptions) *PlaceJob {
@@ -55,6 +64,21 @@ func NewPlaceJob(parentID, langCode, u string, extractEmail, extraExtraReviews b
 func WithPlaceJobExitMonitor(exitMonitor exiter.Exiter) PlaceJobOptions {
 	return func(j *PlaceJob) {
 		j.ExitMonitor = exitMonitor
+	}
+}
+
+func WithRadiusFilter(lat, lon, radiusMeters float64) PlaceJobOptions {
+	return func(j *PlaceJob) {
+		j.FilterByRadius = true
+		j.CenterLat = lat
+		j.CenterLon = lon
+		j.RadiusMeters = radiusMeters
+	}
+}
+
+func WithGoogleMapsAPIKey(apiKey string) PlaceJobOptions {
+	return func(j *PlaceJob) {
+		j.GoogleMapsAPIKey = apiKey
 	}
 }
 

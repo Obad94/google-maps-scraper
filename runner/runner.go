@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"runtime"
 	"strings"
@@ -60,6 +61,8 @@ type Config struct {
 	CustomWriter             string
 	GeoCoordinates           string
 	Zoom                     int
+	ZoomLevel                int
+	ZoomMeters               int
 	RunMode                  int
 	DisableTelemetry         bool
 	WebRunner                bool
@@ -75,11 +78,15 @@ type Config struct {
 	FunctionName             string
 	AwsLambdaChunkSize       int
 	FastMode                 bool
+	NearbyMode               bool
+	HybridMode               bool
+	BrowserAPIMode           bool
 	Radius                   float64
 	Addr                     string
 	DisablePageReuse         bool
 	ExtraReviews             bool
 	LeadsDBAPIKey            string
+	GoogleMapsAPIKey         string
 }
 
 func ParseConfig() *Config {
@@ -300,4 +307,37 @@ func Banner() {
 	message3 := "💖 Consider sponsoring to support development: https://github.com/sponsors/gosom"
 
 	fmt.Fprintln(os.Stderr, banner([]string{message1, message2, message3}, 0))
+}
+
+// ConvertZoomToMeters converts a Google Maps zoom level to meters based on latitude
+func ConvertZoomToMeters(zoomLevel int, latitude float64) int {
+	if zoomLevel < 1 || zoomLevel > 21 {
+		return 2000 // Default 2km
+	}
+
+	// Standard Web Mercator formula for meters per pixel
+	// 156543.03392 = Earth's circumference / 256 (tile size at zoom 0)
+	metersPerPixel := 156543.03392 * cosDegrees(latitude) / float64(uint(1)<<uint(zoomLevel))
+
+	// Use 800px as effective viewport width for search area
+	// This matches Google Maps' typical search behavior
+	const viewportWidth = 800.0
+	meters := int(metersPerPixel * viewportWidth)
+
+	// Clamp to sensible values for nearby search
+	// Minimum: 51m (required by nearby mode API)
+	// Maximum: 2000m (larger values cause Google Maps feed to not load properly)
+	if meters < 51 {
+		meters = 51
+	}
+	if meters > 2000 {
+		meters = 2000
+	}
+
+	return meters
+}
+
+// cosDegrees returns the cosine of an angle in degrees
+func cosDegrees(degrees float64) float64 {
+	return math.Cos(degrees * math.Pi / 180.0)
 }

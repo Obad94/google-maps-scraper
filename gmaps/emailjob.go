@@ -3,15 +3,14 @@ package gmaps
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"strings"
+	"time"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/google/uuid"
 	"github.com/gosom/google-maps-scraper/exiter"
 	"github.com/gosom/scrapemate"
 	"github.com/mcnijman/go-emailaddress"
-	"github.com/playwright-community/playwright-go"
 )
 
 // Maximum number of emails to extract from a single page to avoid false positives
@@ -106,17 +105,14 @@ func (j *EmailExtractJob) ProcessOnFetchError() bool {
 	return true
 }
 
-func (j *EmailExtractJob) BrowserActions(ctx context.Context, page playwright.Page) scrapemate.Response {
+func (j *EmailExtractJob) BrowserActions(ctx context.Context, page scrapemate.BrowserPage) scrapemate.Response {
 	var resp scrapemate.Response
 
 	log := scrapemate.GetLoggerFromContext(ctx)
 	log.Info("Processing email job", "jobid", j.ID, "url", j.GetURL())
 
 	// Navigate with networkidle to ensure all redirects and resources are loaded
-	pageResponse, err := page.Goto(j.GetURL(), playwright.PageGotoOptions{
-		WaitUntil: playwright.WaitUntilStateNetworkidle, // Wait for final redirect and network to be idle
-		Timeout:   playwright.Float(60000),               // 60 second timeout for website loading with proxies
-	})
+	pageResponse, err := page.Goto(j.GetURL(), scrapemate.WaitUntilNetworkIdle)
 	if err != nil {
 		// Classify errors as permanent vs retryable
 		errorStr := err.Error()
@@ -154,15 +150,11 @@ func (j *EmailExtractJob) BrowserActions(ctx context.Context, page playwright.Pa
 	}
 
 	// Wait additional 2 seconds for any lazy-loaded content or final JS execution
-	page.WaitForTimeout(2000)
+	page.WaitForTimeout(2 * time.Second)
 
-	resp.URL = pageResponse.URL()
-	resp.StatusCode = pageResponse.Status()
-	resp.Headers = make(http.Header, len(pageResponse.Headers()))
-
-	for k, v := range pageResponse.Headers() {
-		resp.Headers.Add(k, v)
-	}
+	resp.URL = pageResponse.URL
+	resp.StatusCode = pageResponse.StatusCode
+	resp.Headers = pageResponse.Headers
 
 	// Check for HTTP error status codes (4xx and 5xx)
 	if resp.StatusCode >= 400 {

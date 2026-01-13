@@ -14,8 +14,10 @@ import (
 	"github.com/gosom/google-maps-scraper/deduper"
 	"github.com/gosom/google-maps-scraper/exiter"
 	"github.com/gosom/scrapemate"
-	"github.com/playwright-community/playwright-go"
 )
+
+// nearbyScrollCallback is called after each scroll iteration
+type nearbyScrollCallback func(page scrapemate.BrowserPage, depth int) (int, error)
 
 type NearbySearchJobOptions func(*NearbySearchJob)
 
@@ -241,7 +243,7 @@ func (j *NearbySearchJob) Process(ctx context.Context, resp *scrapemate.Response
 	return nil, next, nil
 }
 
-func (j *NearbySearchJob) BrowserActions(ctx context.Context, page playwright.Page) scrapemate.Response {
+func (j *NearbySearchJob) BrowserActions(ctx context.Context, page scrapemate.BrowserPage) scrapemate.Response {
 	var resp scrapemate.Response
 
 	// Build the TRUE nearby search URL (proximity-based, not relevance-based)
@@ -261,7 +263,7 @@ func (j *NearbySearchJob) BrowserActions(ctx context.Context, page playwright.Pa
 	// - !3m2!1e3!4b1 = enables nearby/proximity mode (1e3 is key)
 	// - !4m7!2m6!3m5!1sCATEGORY!2sLAT,LON!4m2!1dLON!2dLAT = search parameters
 	encodedCategory := url.QueryEscape(j.Category)
-	
+
 	// Build the data parameter for true nearby search
 	// !1e3 is crucial - it enables proximity-based sorting instead of relevance
 	dataParam := fmt.Sprintf("!3m1!1e3!4m7!2m6!3m5!1s%s!2s%.7f,+%.7f!4m2!1d%.7f!2d%.7f",
@@ -271,7 +273,7 @@ func (j *NearbySearchJob) BrowserActions(ctx context.Context, page playwright.Pa
 		j.Longitude,
 		j.Latitude,
 	)
-	
+
 	searchURL := fmt.Sprintf("https://www.google.com/maps/search/%s/@%f,%f,%dm/data=%s",
 		encodedCategory,
 		j.Latitude,
@@ -290,11 +292,7 @@ func (j *NearbySearchJob) BrowserActions(ctx context.Context, page playwright.Pa
 	log.Info(fmt.Sprintf("Navigating to initial URL: %s", searchURL))
 	log.Info(fmt.Sprintf("Using zoom: %dm for map view, radius: %.0fm for filtering results", zoomMeters, j.RadiusMeters))
 
-	pageResponse, err := page.Goto(searchURL, playwright.PageGotoOptions{
-		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
-		Timeout:   playwright.Float(60000), // 60 seconds for slow proxy connections
-	})
-
+	pageResponse, err := page.Goto(searchURL, scrapemate.WaitUntilDOMContentLoaded)
 	if err != nil {
 		resp.Error = fmt.Errorf("failed to navigate to search nearby URL: %w", err)
 		return resp
@@ -320,9 +318,7 @@ func (j *NearbySearchJob) BrowserActions(ctx context.Context, page playwright.Pa
 
 	// Wait for the results feed to appear
 	feedSelector := `div[role='feed']`
-	_, err = page.WaitForSelector(feedSelector, playwright.PageWaitForSelectorOptions{
-		Timeout: playwright.Float(15000),
-	})
+	err = page.WaitForSelector(feedSelector, 15*time.Second)
 	if err != nil {
 		resp.Error = fmt.Errorf("results feed not found: %w", err)
 		return resp
@@ -331,7 +327,7 @@ func (j *NearbySearchJob) BrowserActions(ctx context.Context, page playwright.Pa
 	log.Info(fmt.Sprintf("Starting to scroll (max depth: %d) to find nearby places...", j.MaxDepth))
 
 	// Create callback to extract places progressively during scrolling
-	extractCallback := func(page playwright.Page, depth int) (int, error) {
+	extractCallback := func(page scrapemate.BrowserPage, depth int) (int, error) {
 		body, err := page.Content()
 		if err != nil {
 			return 0, err
@@ -384,7 +380,7 @@ func (j *NearbySearchJob) BrowserActions(ctx context.Context, page playwright.Pa
 	}
 
 	// Scroll through the results with progressive extraction
-	scrollAttempts, err := scroll(ctx, page, j.MaxDepth, feedSelector, extractCallback)
+	scrollAttempts, err := scrollWithCallback(ctx, page, j.MaxDepth, feedSelector, extractCallback)
 	if err != nil {
 		resp.Error = fmt.Errorf("failed to scroll results: %w", err)
 		return resp
@@ -395,15 +391,88 @@ func (j *NearbySearchJob) BrowserActions(ctx context.Context, page playwright.Pa
 	// Store the extracted URLs marker instead of full HTML
 	resp.Body = []byte("progressive_extraction_completed")
 
-	resp.URL = page.URL()
-	resp.StatusCode = pageResponse.Status()
-	resp.Headers = make(http.Header, len(pageResponse.Headers()))
-
-	for k, v := range pageResponse.Headers() {
-		resp.Headers.Add(k, v)
-	}
+	resp.URL = pageResponse.URL
+	resp.StatusCode = pageResponse.StatusCode
+	resp.Headers = pageResponse.Headers
 
 	return resp
+}
+
+// scrollWithCallback scrolls through results and calls callback after each scroll
+func scrollWithCallback(ctx context.Context,
+	page scrapemate.BrowserPage,
+	maxDepth int,
+	scrollSelector string,
+	callback nearbyScrollCallback,
+) (int, error) {
+	expr := `async () => {
+		const el = document.querySelector("` + scrollSelector + `");
+		if (!el) return -1;
+
+		el.scrollTop = el.scrollHeight;
+
+		return new Promise((resolve, reject) => {
+			setTimeout(() => {
+				resolve(el.scrollHeight);
+			}, %d);
+		});
+	}`
+
+	var currentScrollHeight int
+	waitTime := 100.
+	cnt := 0
+
+	const (
+		timeout  = 500
+		maxWait2 = 2000
+	)
+
+	for i := 0; i < maxDepth; i++ {
+		cnt++
+
+		select {
+		case <-ctx.Done():
+			return cnt, nil
+		default:
+		}
+
+		raw, err := page.Eval(fmt.Sprintf(expr, timeout))
+		if err != nil {
+			return cnt, err
+		}
+
+		var newScrollHeight int
+		switch v := raw.(type) {
+		case float64:
+			newScrollHeight = int(v)
+		case int:
+			newScrollHeight = v
+		default:
+			newScrollHeight = -1
+		}
+
+		if newScrollHeight == -1 {
+			return cnt, nil
+		}
+
+		// Call the callback to extract data at this depth
+		if callback != nil {
+			_, _ = callback(page, i)
+		}
+
+		if newScrollHeight == currentScrollHeight {
+			if waitTime > maxWait2 {
+				return cnt, nil
+			}
+			waitTime *= 1.5
+		} else {
+			waitTime = 100.
+		}
+
+		currentScrollHeight = newScrollHeight
+	}
+
+	return cnt, nil
 }
 
 // Ensure NearbySearchJob implements the necessary interfaces

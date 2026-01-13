@@ -28,6 +28,15 @@ type GmapJob struct {
 	Deduper             deduper.Deduper
 	ExitMonitor         exiter.Exiter
 	ExtractExtraReviews bool
+
+	// Radius filtering
+	FilterByRadius bool
+	CenterLat      float64
+	CenterLon      float64
+	RadiusMeters   float64
+
+	// Google Places API enrichment
+	GoogleMapsAPIKey string
 }
 
 func NewGmapJob(
@@ -93,6 +102,21 @@ func WithExitMonitor(e exiter.Exiter) GmapJobOptions {
 func WithExtraReviews() GmapJobOptions {
 	return func(j *GmapJob) {
 		j.ExtractExtraReviews = true
+	}
+}
+
+func WithRadiusFiltering(lat, lon, radiusMeters float64) GmapJobOptions {
+	return func(j *GmapJob) {
+		j.FilterByRadius = true
+		j.CenterLat = lat
+		j.CenterLon = lon
+		j.RadiusMeters = radiusMeters
+	}
+}
+
+func WithGmapGoogleMapsAPIKey(apiKey string) GmapJobOptions {
+	return func(j *GmapJob) {
+		j.GoogleMapsAPIKey = apiKey
 	}
 }
 

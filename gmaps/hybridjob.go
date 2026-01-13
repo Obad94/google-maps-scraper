@@ -16,7 +16,6 @@ import (
 	"github.com/gosom/google-maps-scraper/deduper"
 	"github.com/gosom/google-maps-scraper/exiter"
 	"github.com/gosom/scrapemate"
-	"github.com/playwright-community/playwright-go"
 )
 
 type HybridJobOptions func(*HybridJob)
@@ -307,17 +306,14 @@ func (j *HybridJob) Process(ctx context.Context, resp *scrapemate.Response) (any
 }
 
 // BrowserActions navigates to search page, extracts coordinates from visible results
-func (j *HybridJob) BrowserActions(ctx context.Context, page playwright.Page) scrapemate.Response {
+func (j *HybridJob) BrowserActions(ctx context.Context, page scrapemate.BrowserPage) scrapemate.Response {
 	var resp scrapemate.Response
 
 	log := scrapemate.GetLoggerFromContext(ctx)
 	log.Info(fmt.Sprintf("[HYBRID] Phase 1: Navigating to search for '%s'", j.Query))
 
-	// Navigate to the search URL (increased timeout for proxy scenarios)
-	pageResponse, err := page.Goto(j.GetFullURL(), playwright.PageGotoOptions{
-		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
-		Timeout:   playwright.Float(60000), // 60 seconds for slow proxy connections
-	})
+	// Navigate to the search URL
+	pageResponse, err := page.Goto(j.GetFullURL(), scrapemate.WaitUntilDOMContentLoaded)
 	if err != nil {
 		resp.Error = fmt.Errorf("failed to navigate: %w", err)
 		return resp
@@ -331,9 +327,7 @@ func (j *HybridJob) BrowserActions(ctx context.Context, page playwright.Page) sc
 
 	// Wait for the results feed to appear
 	feedSelector := `div[role='feed']`
-	_, err = page.WaitForSelector(feedSelector, playwright.PageWaitForSelectorOptions{
-		Timeout: playwright.Float(10000),
-	})
+	err = page.WaitForSelector(feedSelector, 10*time.Second)
 	if err != nil {
 		// Check if redirected to single place
 		if strings.Contains(page.URL(), "/maps/place/") {
@@ -348,7 +342,7 @@ func (j *HybridJob) BrowserActions(ctx context.Context, page playwright.Page) sc
 				})
 				j.seedMutex.Unlock()
 			}
-			resp.StatusCode = pageResponse.Status()
+			resp.StatusCode = pageResponse.StatusCode
 			resp.URL = page.URL()
 			return resp
 		}
@@ -397,12 +391,9 @@ func (j *HybridJob) BrowserActions(ctx context.Context, page playwright.Page) sc
 
 	log.Info(fmt.Sprintf("[HYBRID] Extracted %d seed locations from search results", len(j.seedLocations)))
 
-	resp.StatusCode = pageResponse.Status()
-	resp.URL = page.URL()
-	resp.Headers = make(http.Header)
-	for k, v := range pageResponse.Headers() {
-		resp.Headers.Add(k, v)
-	}
+	resp.StatusCode = pageResponse.StatusCode
+	resp.URL = pageResponse.URL
+	resp.Headers = pageResponse.Headers
 
 	return resp
 }

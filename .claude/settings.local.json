@@ -44,7 +44,16 @@
       "Bash(powershell \"(Get-Content member_handlers.go) -replace ''apiError\\{Error:'', ''apiError{Code: http.StatusBadRequest, Message:'' | Set-Content member_handlers.go\")",
       "Bash(powershell \"(Get-Content middleware.go) -replace ''apiError\\{Error:'', ''apiError{Code: http.StatusUnauthorized, Message:'' | Set-Content middleware.go\")",
       "Bash(docker-compose:*)",
-      "Bash(SESSION_SECRET=test POSTGRES_PASSWORD=test GOOGLE_MAPS_API_KEY=test docker-compose:*)"
+      "Bash(SESSION_SECRET=test POSTGRES_PASSWORD=test GOOGLE_MAPS_API_KEY=test docker-compose:*)",
+      "Bash(git checkout:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nMerge upstream/main: Add go-rod support, place_id extraction, review fixes\n\nMerged upstream changes:\n- scrapemate v1.0.0 with BrowserPage interface \\(go-rod support\\)\n- extract place_id feature\n- Review extraction improvements via browser RPC\n- leadsDB integration\n- Various bug fixes\n\nKept local customizations:\n- Docker-compose commands in Makefile\n- Web UI and multi-tenancy features\nEOF\n\\)\")",
+      "Bash(grep:*)",
+      "Bash(while read f)",
+      "Bash(do git show 9f097a8:\"$f\")",
+      "Bash(echo:*)",
+      "Bash(done)",
+      "Bash(git grep:*)"
     ],
     "deny": [],
     "ask": []

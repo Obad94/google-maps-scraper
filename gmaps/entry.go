@@ -85,6 +85,7 @@ type Entry struct {
 	PriceRange          string                 `json:"price_range"`
 	DataID              string                 `json:"data_id"`
 	PlaceID             string                 `json:"place_id"`
+	PlaceIDURL          string                 `json:"place_id_url"`
 	Images              []Image                `json:"images"`
 	Reservations        []LinkSource           `json:"reservations"`
 	OrderOnline         []LinkSource           `json:"order_online"`
@@ -182,6 +183,7 @@ func (e *Entry) CsvHeaders() []string {
 		"price_range",
 		"data_id",
 		"place_id",
+		"place_id_url",
 		"images",
 		"reservations",
 		"order_online",
@@ -221,6 +223,7 @@ func (e *Entry) CsvRow() []string {
 		e.PriceRange,
 		e.DataID,
 		e.PlaceID,
+		e.PlaceIDURL,
 		stringify(e.Images),
 		stringify(e.Reservations),
 		stringify(e.OrderOnline),
@@ -817,4 +820,30 @@ func filterAndSortEntriesWithinRadius(entries []*Entry, lat, lon, radius float64
 	}
 
 	return slices.Collect(iter.Seq[*Entry](resultIterator))
+}
+
+// cleanWebsiteURL extracts the actual URL from Google redirect URLs.
+// Google Maps often returns URLs like "/url?q=http://example.com/&..."
+// This function extracts the actual URL from the "q" parameter.
+func cleanWebsiteURL(rawURL string) string {
+	if rawURL == "" {
+		return ""
+	}
+
+	// Check if this is a Google redirect URL
+	if strings.HasPrefix(rawURL, "/url?") {
+		// Parse the query parameters
+		parsedURL, err := url.Parse(rawURL)
+		if err != nil {
+			return rawURL
+		}
+
+		// Extract the "q" parameter which contains the actual URL
+		actualURL := parsedURL.Query().Get("q")
+		if actualURL != "" {
+			return actualURL
+		}
+	}
+
+	return rawURL
 }
