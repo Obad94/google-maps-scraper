@@ -149,6 +149,10 @@ func ParseConfig() *Config {
 		cfg.AwsRegion = os.Getenv("MY_AWS_REGION")
 	}
 
+	if cfg.GoogleMapsAPIKey == "" {
+		cfg.GoogleMapsAPIKey = os.Getenv("GOOGLE_MAPS_API_KEY")
+	}
+
 	if cfg.AwsLambdaInvoker && cfg.FunctionName == "" {
 		panic("FunctionName must be provided when using AwsLambdaInvoker")
 	}
