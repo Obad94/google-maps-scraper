@@ -1,16 +1,13 @@
 package runner
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -62,8 +59,7 @@ type Config struct {
 	Email                    bool
 	CustomWriter             string
 	GeoCoordinates           string
-	ZoomLevel                int
-	ZoomMeters               int
+	Zoom                     int
 	RunMode                  int
 	DisableTelemetry         bool
 	WebRunner                bool
@@ -79,177 +75,11 @@ type Config struct {
 	FunctionName             string
 	AwsLambdaChunkSize       int
 	FastMode                 bool
-	NearbyMode               bool
-	HybridMode               bool
-	BrowserAPIMode           bool
 	Radius                   float64
 	Addr                     string
 	DisablePageReuse         bool
 	ExtraReviews             bool
-	GoogleMapsAPIKey         string
-}
-
-// parseZoomLevel parses a zoom level string and returns zoomLevel (0-21) or zoomMeters (51+)
-// Supports formats: "15z", "2000m", "15", "2000"
-// Auto-detection: 1-21 = zoom level, 51+ = meters
-func parseZoomLevel(zoomStr string) (zoomLevel int, zoomMeters int, err error) {
-	zoomStr = strings.TrimSpace(zoomStr)
-
-	// Check for explicit unit suffix
-	if strings.HasSuffix(zoomStr, "z") {
-		// Zoom level: "15z"
-		val, err := strconv.Atoi(strings.TrimSuffix(zoomStr, "z"))
-		if err != nil {
-			return 0, 0, fmt.Errorf("invalid zoom level format: %s", zoomStr)
-		}
-		if val < 0 || val > 21 {
-			return 0, 0, fmt.Errorf("zoom level must be between 0-21z, got: %s", zoomStr)
-		}
-		return val, 0, nil
-	}
-
-	if strings.HasSuffix(zoomStr, "m") {
-		// Meters: "2000m"
-		val, err := strconv.Atoi(strings.TrimSuffix(zoomStr, "m"))
-		if err != nil {
-			return 0, 0, fmt.Errorf("invalid zoom meters format: %s", zoomStr)
-		}
-		if val < 51 {
-			return 0, 0, fmt.Errorf("zoom meters must be 51m or greater, got: %s", zoomStr)
-		}
-		return 0, val, nil
-	}
-
-	// No unit - auto-detect based on value
-	val, err := strconv.Atoi(zoomStr)
-	if err != nil {
-		return 0, 0, fmt.Errorf("invalid zoom value: %s (use format like '15z' or '2000m')", zoomStr)
-	}
-
-	if val >= 1 && val <= 21 {
-		// Assume zoom level
-		return val, 0, nil
-	} else if val >= 51 {
-		// Assume meters
-		return 0, val, nil
-	} else if val == 0 {
-		// Special case: 0 is valid zoom level
-		return 0, 0, nil
-	} else {
-		// Ambiguous range 22-50
-		return 0, 0, fmt.Errorf("ambiguous zoom value: %d (use explicit unit: '15z' for zoom level or '2000m' for meters)", val)
-	}
-}
-
-// ConvertZoomToMeters converts a Google Maps zoom level (1-21) to approximate meters
-// Based on Web Mercator projection formula: meters_per_pixel = 156543.03392 * cos(latitude) / 2^zoom
-// Where 156543.03392 = Earth's circumference at equator (40,075,016.686m) / 256 pixels (tile size at zoom 0)
-//
-// Viewport assumptions:
-// - Google Maps search typically uses ~800-1024px effective width for search radius
-// - We use 800px as a conservative estimate for search area calculation
-//
-// Latitude effect:
-// - At equator (0°): cos(0) = 1.0 → Full scale
-// - At 40°N (NYC): cos(40) = 0.766 → 23% smaller
-// - At 51°N (London): cos(51) = 0.629 → 37% smaller
-//
-// Example conversions (at equator, 800px viewport):
-// Zoom 21 → ~60m, Zoom 20 → ~120m, Zoom 19 → ~240m
-// Zoom 18 → ~480m, Zoom 17 → ~950m, Zoom 16 → ~1900m
-// Zoom 15 → ~3800m, Zoom 14 → ~7600m
-func ConvertZoomToMeters(zoomLevel int, latitude float64) int {
-	if zoomLevel < 1 || zoomLevel > 21 {
-		return 2000 // Default 2km
-	}
-
-	// Standard Web Mercator formula for meters per pixel
-	// 156543.03392 = Earth's circumference / 256 (tile size at zoom 0)
-	metersPerPixel := 156543.03392 * cosDegrees(latitude) / float64(uint(1)<<uint(zoomLevel))
-
-	// Use 800px as effective viewport width for search area
-	// This matches Google Maps' typical search behavior
-	const viewportWidth = 800.0
-	meters := int(metersPerPixel * viewportWidth)
-
-	// Clamp to sensible values for nearby search
-	// Minimum: 51m (required by nearby mode API)
-	// Maximum: 2000m (larger values cause Google Maps feed to not load properly)
-	if meters < 51 {
-		meters = 51
-	}
-	if meters > 2000 {
-		meters = 2000
-	}
-
-	return meters
-}
-
-// cosDegrees returns the cosine of an angle in degrees
-func cosDegrees(degrees float64) float64 {
-	return math.Cos(degrees * math.Pi / 180.0)
-}
-
-// parseProxiesFromFile reads a proxy file and returns a slice of proxy URLs
-// Supports two formats:
-// 1. ip:port:username:password (converts to http://username:password@ip:port)
-// 2. protocol://user:pass@host:port (used as-is)
-// File can contain proxies one per line or comma-separated
-func parseProxiesFromFile(filePath string) ([]string, error) {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open proxy file: %w", err)
-	}
-	defer file.Close()
-
-	var proxies []string
-	scanner := bufio.NewScanner(file)
-
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-
-		// Skip empty lines and comments
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		// Split by comma in case file has comma-separated proxies
-		parts := strings.Split(line, ",")
-		for _, proxy := range parts {
-			proxy = strings.TrimSpace(proxy)
-			if proxy == "" {
-				continue
-			}
-
-			// Check if it's already in URL format (contains ://)
-			if strings.Contains(proxy, "://") {
-				proxies = append(proxies, proxy)
-				continue
-			}
-
-			// Parse ip:port:username:password format
-			colonParts := strings.Split(proxy, ":")
-			if len(colonParts) == 4 {
-				ip := colonParts[0]
-				port := colonParts[1]
-				username := colonParts[2]
-				password := colonParts[3]
-
-				// Convert to http://username:password@ip:port format
-				proxyURL := fmt.Sprintf("http://%s:%s@%s:%s", username, password, ip, port)
-				proxies = append(proxies, proxyURL)
-			} else {
-				// If format doesn't match, log warning but continue
-				fmt.Fprintf(os.Stderr, "Warning: skipping invalid proxy: %s\n", proxy)
-			}
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("error reading proxy file: %w", err)
-	}
-
-	return proxies, nil
+	LeadsDBAPIKey            string
 }
 
 func ParseConfig() *Config {
@@ -263,7 +93,6 @@ func ParseConfig() *Config {
 
 	var (
 		proxies string
-		zoomStr string
 	)
 
 	flag.IntVar(&cfg.Concurrency, "c", min(runtime.NumCPU()/2, 1), "sets the concurrency [default: half of CPU cores]")
@@ -280,10 +109,10 @@ func ParseConfig() *Config {
 	flag.BoolVar(&cfg.Email, "email", false, "extract emails from websites")
 	flag.StringVar(&cfg.CustomWriter, "writer", "", "use custom writer plugin (format: 'dir:pluginName')")
 	flag.StringVar(&cfg.GeoCoordinates, "geo", "", "set geo coordinates for search (e.g., '37.7749,-122.4194')")
-	flag.StringVar(&zoomStr, "zoom", "15z", "zoom level (1-21z) or distance in meters (51m+). Examples: '15z', '2000m', '500m'. Auto-detects: 1-21=zoom level, 51+=meters")
+	flag.IntVar(&cfg.Zoom, "zoom", 15, "set zoom level (0-21) for search")
 	flag.BoolVar(&cfg.WebRunner, "web", false, "run web server instead of crawling")
 	flag.StringVar(&cfg.DataFolder, "data-folder", "webdata", "data folder for web runner")
-	flag.StringVar(&proxies, "proxies", "", "comma separated list of proxies OR path to file with proxies. Format: protocol://user:pass@host:port (e.g., http://user:pass@host:port)")
+	flag.StringVar(&proxies, "proxies", "", "comma separated list of proxies to use in the format protocol://user:pass@host:port example: socks5://localhost:9050 or http://user:pass@localhost:9050")
 	flag.BoolVar(&cfg.AwsLamdbaRunner, "aws-lambda", false, "run as AWS Lambda function")
 	flag.BoolVar(&cfg.AwsLambdaInvoker, "aws-lambda-invoker", false, "run as AWS Lambda invoker")
 	flag.StringVar(&cfg.FunctionName, "function-name", "", "AWS Lambda function name")
@@ -293,23 +122,13 @@ func ParseConfig() *Config {
 	flag.StringVar(&cfg.S3Bucket, "s3-bucket", "", "S3 bucket name")
 	flag.IntVar(&cfg.AwsLambdaChunkSize, "aws-lambda-chunk-size", 100, "AWS Lambda chunk size")
 	flag.BoolVar(&cfg.FastMode, "fast-mode", false, "fast mode (reduced data collection)")
-	flag.BoolVar(&cfg.NearbyMode, "nearby-mode", false, "nearby search mode (right-click search nearby simulation)")
-	flag.BoolVar(&cfg.HybridMode, "hybrid-mode", false, "hybrid mode: runs fast mode first, then nearby search on each result location")
-	flag.BoolVar(&cfg.BrowserAPIMode, "BrowserAPI", false, "browser API mode: uses Google Places API to get nearby places, then scrapes each place and runs nearby search")
-	flag.Float64Var(&cfg.Radius, "radius", 10000, "search radius in meters for filtering results. Default is 10000 meters")
+	flag.Float64Var(&cfg.Radius, "radius", 10000, "search radius in meters. Default is 10000 meters")
 	flag.StringVar(&cfg.Addr, "addr", ":8080", "address to listen on for web server")
 	flag.BoolVar(&cfg.DisablePageReuse, "disable-page-reuse", false, "disable page reuse in playwright")
 	flag.BoolVar(&cfg.ExtraReviews, "extra-reviews", false, "enable extra reviews collection")
+	flag.StringVar(&cfg.LeadsDBAPIKey, "leadsdb-api-key", "", "LeadsDB API key for exporting results to LeadsDB")
 
 	flag.Parse()
-
-	// Parse zoom level
-	zoomLevel, zoomMeters, err := parseZoomLevel(zoomStr)
-	if err != nil {
-		panic(err)
-	}
-	cfg.ZoomLevel = zoomLevel
-	cfg.ZoomMeters = zoomMeters
 
 	if cfg.AwsAccessKey == "" {
 		cfg.AwsAccessKey = os.Getenv("MY_AWS_ACCESS_KEY")
@@ -321,10 +140,6 @@ func ParseConfig() *Config {
 
 	if cfg.AwsRegion == "" {
 		cfg.AwsRegion = os.Getenv("MY_AWS_REGION")
-	}
-
-	if cfg.GoogleMapsAPIKey == "" {
-		cfg.GoogleMapsAPIKey = os.Getenv("GOOGLE_MAPS_API_KEY")
 	}
 
 	if cfg.AwsLambdaInvoker && cfg.FunctionName == "" {
@@ -347,32 +162,16 @@ func ParseConfig() *Config {
 		panic("MaxDepth must be greater than 0")
 	}
 
+	if cfg.Zoom < 0 || cfg.Zoom > 21 {
+		panic("Zoom must be between 0 and 21")
+	}
+
 	if cfg.Dsn == "" && cfg.ProduceOnly {
 		panic("Dsn must be provided when using ProduceOnly")
 	}
 
-	// Parse proxies from command line flag or file
 	if proxies != "" {
-		// Check if it's a file path
-		if _, err := os.Stat(proxies); err == nil {
-			// It's a file, parse it
-			fileProxies, err := parseProxiesFromFile(proxies)
-			if err != nil {
-				panic(fmt.Sprintf("Failed to parse proxy file: %v", err))
-			}
-			cfg.Proxies = fileProxies
-			fmt.Fprintf(os.Stderr, "Loaded %d proxies from file: %s\n", len(fileProxies), proxies)
-		} else {
-			// It's a comma-separated string
-			cfg.Proxies = strings.Split(proxies, ",")
-		}
-	} else {
-		// Fallback to PROXY environment variable if no CLI proxy is provided
-		envProxy := os.Getenv("PROXY")
-		if envProxy != "" {
-			cfg.Proxies = []string{envProxy}
-			fmt.Fprintf(os.Stderr, "Using fallback proxy from .env: %s\n", envProxy)
-		}
+		cfg.Proxies = strings.Split(proxies, ",")
 	}
 
 	if cfg.AwsAccessKey != "" && cfg.AwsSecretKey != "" && cfg.AwsRegion != "" {

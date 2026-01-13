@@ -6,13 +6,11 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/google/uuid"
 	"github.com/gosom/scrapemate"
-	"github.com/playwright-community/playwright-go"
 
 	"github.com/gosom/google-maps-scraper/deduper"
 	"github.com/gosom/google-maps-scraper/exiter"
@@ -30,19 +28,6 @@ type GmapJob struct {
 	Deduper             deduper.Deduper
 	ExitMonitor         exiter.Exiter
 	ExtractExtraReviews bool
-
-	// Radius filtering
-	FilterByRadius bool
-	CenterLat      float64
-	CenterLon      float64
-	RadiusMeters   float64
-
-	// Google Places API enrichment
-	GoogleMapsAPIKey string
-
-	// Progressive extraction - stores URLs found during scrolling
-	extractedURLs []string
-	urlsMutex     sync.Mutex
 }
 
 func NewGmapJob(
@@ -111,21 +96,6 @@ func WithExtraReviews() GmapJobOptions {
 	}
 }
 
-func WithRadiusFiltering(lat, lon, radiusMeters float64) GmapJobOptions {
-	return func(j *GmapJob) {
-		j.FilterByRadius = true
-		j.CenterLat = lat
-		j.CenterLon = lon
-		j.RadiusMeters = radiusMeters
-	}
-}
-
-func WithGmapGoogleMapsAPIKey(apiKey string) GmapJobOptions {
-	return func(j *GmapJob) {
-		j.GoogleMapsAPIKey = apiKey
-	}
-}
-
 func (j *GmapJob) UseInResults() bool {
 	return false
 }
@@ -138,67 +108,28 @@ func (j *GmapJob) Process(ctx context.Context, resp *scrapemate.Response) (any, 
 
 	log := scrapemate.GetLoggerFromContext(ctx)
 
+	doc, ok := resp.Document.(*goquery.Document)
+	if !ok {
+		return nil, nil, fmt.Errorf("could not convert to goquery document")
+	}
+
 	var next []scrapemate.IJob
 
-	// Check if this is a single place redirect
 	if strings.Contains(resp.URL, "/maps/place/") {
 		jopts := []PlaceJobOptions{}
 		if j.ExitMonitor != nil {
 			jopts = append(jopts, WithPlaceJobExitMonitor(j.ExitMonitor))
 		}
-		if j.FilterByRadius {
-			jopts = append(jopts, WithRadiusFilter(j.CenterLat, j.CenterLon, j.RadiusMeters))
-		}
-		if j.GoogleMapsAPIKey != "" {
-			jopts = append(jopts, WithGoogleMapsAPIKey(j.GoogleMapsAPIKey))
-		}
 
 		placeJob := NewPlaceJob(j.ID, j.LangCode, resp.URL, j.ExtractEmail, j.ExtractExtraReviews, jopts...)
 
 		next = append(next, placeJob)
-	} else if string(resp.Body) == "progressive_extraction_completed" {
-		// Use progressively extracted URLs from BrowserActions
-		j.urlsMutex.Lock()
-		urls := make([]string, len(j.extractedURLs))
-		copy(urls, j.extractedURLs)
-		j.urlsMutex.Unlock()
-
-		for _, href := range urls {
-			jopts := []PlaceJobOptions{}
-			if j.ExitMonitor != nil {
-				jopts = append(jopts, WithPlaceJobExitMonitor(j.ExitMonitor))
-			}
-			if j.FilterByRadius {
-				jopts = append(jopts, WithRadiusFilter(j.CenterLat, j.CenterLon, j.RadiusMeters))
-			}
-			if j.GoogleMapsAPIKey != "" {
-				jopts = append(jopts, WithGoogleMapsAPIKey(j.GoogleMapsAPIKey))
-			}
-
-			nextJob := NewPlaceJob(j.ID, j.LangCode, href, j.ExtractEmail, j.ExtractExtraReviews, jopts...)
-
-			if j.Deduper == nil || j.Deduper.AddIfNotExists(ctx, href) {
-				next = append(next, nextJob)
-			}
-		}
 	} else {
-		// Fallback: parse HTML document (for backward compatibility)
-		doc, ok := resp.Document.(*goquery.Document)
-		if !ok {
-			return nil, nil, fmt.Errorf("could not convert to goquery document")
-		}
-
 		doc.Find(`div[role=feed] div[jsaction]>a`).Each(func(_ int, s *goquery.Selection) {
 			if href := s.AttrOr("href", ""); href != "" {
 				jopts := []PlaceJobOptions{}
 				if j.ExitMonitor != nil {
 					jopts = append(jopts, WithPlaceJobExitMonitor(j.ExitMonitor))
-				}
-				if j.FilterByRadius {
-					jopts = append(jopts, WithRadiusFilter(j.CenterLat, j.CenterLon, j.RadiusMeters))
-				}
-				if j.GoogleMapsAPIKey != "" {
-					jopts = append(jopts, WithGoogleMapsAPIKey(j.GoogleMapsAPIKey))
 				}
 
 				nextJob := NewPlaceJob(j.ID, j.LangCode, href, j.ExtractEmail, j.ExtractExtraReviews, jopts...)
@@ -220,75 +151,36 @@ func (j *GmapJob) Process(ctx context.Context, resp *scrapemate.Response) (any, 
 	return nil, next, nil
 }
 
-func (j *GmapJob) BrowserActions(ctx context.Context, page playwright.Page) scrapemate.Response {
+func (j *GmapJob) BrowserActions(ctx context.Context, page scrapemate.BrowserPage) scrapemate.Response {
 	var resp scrapemate.Response
 
-	pageResponse, err := page.Goto(j.GetFullURL(), playwright.PageGotoOptions{
-		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
-		Timeout:   playwright.Float(60000), // 60 seconds for slow proxy connections
-	})
+	pageResponse, err := page.Goto(j.GetFullURL(), scrapemate.WaitUntilDOMContentLoaded)
 	if err != nil {
 		resp.Error = err
 
 		return resp
 	}
-
-	// Wait 1 second for any final redirects to complete (Google Maps SPAs)
-	page.WaitForTimeout(1000)
 
 	clickRejectCookiesIfRequired(page)
 
-	// Check if we were redirected to a consent page after initial navigation
-	currentURL := page.URL()
-	if strings.Contains(currentURL, "consent.google.com") {
-		fmt.Printf("DEBUG: Redirected to consent page, attempting to handle and retry...\n")
-		handleConsentPage(page)
+	const defaultTimeout = 5 * time.Second
 
-		// After handling consent, retry navigation to original URL
-		pageResponse, err = page.Goto(j.GetFullURL(), playwright.PageGotoOptions{
-			WaitUntil: playwright.WaitUntilStateDomcontentloaded,
-			Timeout:   playwright.Float(15000),
-		})
-		if err != nil {
-			resp.Error = fmt.Errorf("failed to navigate after consent: %w", err)
-			return resp
-		}
-
-		// Wait for final redirect after consent
-		page.WaitForTimeout(1000)
-
-		// Check for consent again after retry (in case of persistent redirects)
-		clickRejectCookiesIfRequired(page)
-	}
-
-	const defaultTimeout = 5000
-
-	err = page.WaitForURL(page.URL(), playwright.PageWaitForURLOptions{
-		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
-		Timeout:   playwright.Float(defaultTimeout),
-	})
+	err = page.WaitForURL(page.URL(), defaultTimeout)
 	if err != nil {
 		resp.Error = err
 
 		return resp
 	}
 
-	resp.URL = pageResponse.URL()
-	resp.StatusCode = pageResponse.Status()
-	resp.Headers = make(http.Header, len(pageResponse.Headers()))
-
-	for k, v := range pageResponse.Headers() {
-		resp.Headers.Add(k, v)
-	}
+	resp.URL = pageResponse.URL
+	resp.StatusCode = pageResponse.StatusCode
+	resp.Headers = pageResponse.Headers
 
 	// When Google Maps finds only 1 place, it slowly redirects to that place's URL
 	// check element scroll
 	sel := `div[role='feed']`
 
-	//nolint:staticcheck // TODO replace with the new playwright API
-	_, err = page.WaitForSelector(sel, playwright.PageWaitForSelectorOptions{
-		Timeout: playwright.Float(700),
-	})
+	err = page.WaitForSelector(sel, 700*time.Millisecond)
 
 	var singlePlace bool
 
@@ -319,65 +211,25 @@ func (j *GmapJob) BrowserActions(ctx context.Context, page playwright.Page) scra
 
 	scrollSelector := `div[role='feed']`
 
-	log := scrapemate.GetLoggerFromContext(ctx)
-
-	// Create callback to extract places progressively during scrolling
-	extractCallback := func(page playwright.Page, depth int) (int, error) {
-		body, err := page.Content()
-		if err != nil {
-			return 0, err
-		}
-
-		doc, err := goquery.NewDocumentFromReader(strings.NewReader(body))
-		if err != nil {
-			return 0, err
-		}
-
-		// Track URLs we've seen before this iteration
-		seenBefore := make(map[string]bool)
-		j.urlsMutex.Lock()
-		for _, u := range j.extractedURLs {
-			seenBefore[u] = true
-		}
-		j.urlsMutex.Unlock()
-
-		newURLs := []string{}
-
-		// Extract place URLs from current page state
-		doc.Find(`div[role=feed] div[jsaction]>a`).Each(func(_ int, s *goquery.Selection) {
-			if href := s.AttrOr("href", ""); href != "" {
-				if !seenBefore[href] {
-					newURLs = append(newURLs, href)
-				}
-			}
-		})
-
-		if len(newURLs) > 0 {
-			j.urlsMutex.Lock()
-			j.extractedURLs = append(j.extractedURLs, newURLs...)
-			j.urlsMutex.Unlock()
-
-			log.Info(fmt.Sprintf("Depth %d: found %d new places (%d total)", depth, len(newURLs), len(j.extractedURLs)))
-		}
-
-		return len(newURLs), nil
-	}
-
-	_, err = scroll(ctx, page, j.MaxDepth, scrollSelector, extractCallback)
+	_, err = scroll(ctx, page, j.MaxDepth, scrollSelector)
 	if err != nil {
 		resp.Error = err
 
 		return resp
 	}
 
-	// Store the extracted URLs in the response body as a marker
-	// Process will use j.extractedURLs directly instead of parsing HTML
-	resp.Body = []byte("progressive_extraction_completed")
+	body, err := page.Content()
+	if err != nil {
+		resp.Error = err
+		return resp
+	}
+
+	resp.Body = []byte(body)
 
 	return resp
 }
 
-func waitUntilURLContains(ctx context.Context, page playwright.Page, s string) bool {
+func waitUntilURLContains(ctx context.Context, page scrapemate.BrowserPage, s string) bool {
 	ticker := time.NewTicker(time.Millisecond * 150)
 	defer ticker.Stop()
 
@@ -393,109 +245,38 @@ func waitUntilURLContains(ctx context.Context, page playwright.Page, s string) b
 	}
 }
 
-func clickRejectCookiesIfRequired(page playwright.Page) {
-	// Check if we're on a consent page
-	currentURL := page.URL()
-	if strings.Contains(currentURL, "consent.google.com") {
-		fmt.Printf("DEBUG: Detected Google consent page: %s\n", currentURL)
-		handleConsentPage(page)
-		return
-	}
-
-	// Original selector for standard cookie banner
-	sel := `form[action="https://consent.google.com/save"] input[type="submit"]`
-	locator := page.Locator(sel)
-
-	count, err := locator.Count()
-	if err != nil {
-		return
-	}
-
-	if count == 0 {
-		return
-	}
-
-	_ = locator.First().Click(playwright.LocatorClickOptions{
-		Timeout: playwright.Float(2000),
-	})
-}
-
-// handleConsentPage handles GDPR consent pages that appear in some regions
-func handleConsentPage(page playwright.Page) {
-	// List of selectors to try for the "Accept" button
-	// These cover various consent page formats across different languages
-	acceptSelectors := []string{
-		// Standard accept all button
-		`button:has-text("Accept all")`,
-		`button:has-text("Accept")`,
-		`button:has-text("Agree")`,
-		`button:has-text("I agree")`,
-		// Multi-language variants
-		`button:has-text("Sprejmi")`, // Slovenian
-		`button:has-text("Acepto")`,  // Spanish
-		`button:has-text("Akzeptieren")`, // German
-		`button:has-text("Accepter")`, // French
-		`button:has-text("Accetta")`, // Italian
-		`button:has-text("Aceitar")`, // Portuguese
-		// Form-based consent
-		`form[action*="consent.google.com"] button[type="submit"]`,
-		`form[action*="consent.google.com"] input[type="submit"]`,
-		// Aria labels and roles
-		`button[aria-label*="Accept"]`,
-		`button[aria-label*="agree"]`,
-		// Common button IDs and classes
-		`button#accept`,
-		`button.accept`,
-		`button[name="agree"]`,
-		// Reject/Continue options (fallback)
-		`button:has-text("Reject all")`,
-		`button:has-text("Continue")`,
-	}
-
-	fmt.Printf("DEBUG: Attempting to handle consent page...\n")
-
-	for i, selector := range acceptSelectors {
-		locator := page.Locator(selector)
-		count, err := locator.Count()
-		if err != nil {
-			continue
-		}
-
-		if count > 0 {
-			fmt.Printf("DEBUG: Found consent button with selector #%d: %s\n", i+1, selector)
-			err = locator.First().Click(playwright.LocatorClickOptions{
-				Timeout: playwright.Float(5000),
-			})
-			if err == nil {
-				fmt.Printf("DEBUG: Successfully clicked consent button\n")
-				// Wait for navigation after clicking
-				page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{
-					State:   playwright.LoadStateDomcontentloaded,
-					Timeout: playwright.Float(10000),
-				})
-				return
+func clickRejectCookiesIfRequired(page scrapemate.BrowserPage) {
+	// Use JavaScript to find and click - faster than multiple locator calls
+	_, _ = page.Eval(`() => {
+		// Try consent form buttons first
+		const consentForm = document.querySelector('form[action*="consent.google"]');
+		if (consentForm) {
+			const btn = consentForm.querySelector('button, input[type="submit"]');
+			if (btn) {
+				btn.click();
+				return true;
 			}
-			fmt.Printf("DEBUG: Failed to click button: %v\n", err)
 		}
-	}
-
-	fmt.Printf("WARNING: Could not find or click any consent button, continuing anyway\n")
+		// Try reject/decline buttons
+		const buttons = document.querySelectorAll('button, input[type="submit"]');
+		for (const btn of buttons) {
+			const text = (btn.textContent || btn.value || '').toLowerCase();
+			if (text.includes('reject') || text.includes('decline') || text.includes('ablehnen')) {
+				btn.click();
+				return true;
+			}
+		}
+		return false;
+	}`)
 }
-
-// scrollCallback is called after each scroll iteration with the current page content
-// It should return the number of new items found
-type scrollCallback func(page playwright.Page, depth int) (int, error)
 
 func scroll(ctx context.Context,
-	page playwright.Page,
+	page scrapemate.BrowserPage,
 	maxDepth int,
 	scrollSelector string,
-	callback scrollCallback,
 ) (int, error) {
 	expr := `async () => {
 		const el = document.querySelector("` + scrollSelector + `");
-		if (!el) return -1;
-
 		el.scrollTop = el.scrollHeight;
 
 		return new Promise((resolve, reject) => {
@@ -506,108 +287,60 @@ func scroll(ctx context.Context,
 	}`
 
 	var currentScrollHeight int
-	var stableCount int // Count of consecutive times height hasn't changed
-	scrollAttempts := 0
+	// Scroll to the bottom of the page.
+	waitTime := 100.
+	cnt := 0
 
 	const (
-		initialWait       = 800  // Initial wait time for content to load (ms)
-		maxWait           = 60000 // Maximum wait time between scrolls (ms)
-		minWait           = 500  // Minimum wait time between scrolls (ms)
-		stableThreshold   = 5    // Number of stable checks before considering content fully loaded
-		retryWaitIncrease = 500  // Additional wait time when content appears stable
+		timeout  = 500
+		maxWait2 = 2000
 	)
 
-	// Progressive wait time - starts at initialWait, increases gradually
-	waitTime := float64(initialWait)
-
 	for i := 0; i < maxDepth; i++ {
-		scrollAttempts++
+		cnt++
+		waitTime2 := timeout * cnt
 
-		// Calculate wait time for this scroll iteration
-		// If content was stable last time, wait longer to give it more time to load
-		currentWaitTime := int(waitTime)
-		if stableCount > 0 {
-			currentWaitTime += retryWaitIncrease * stableCount
-		}
-		if currentWaitTime > maxWait {
-			currentWaitTime = maxWait
-		}
-		if currentWaitTime < minWait {
-			currentWaitTime = minWait
+		if waitTime2 > timeout {
+			waitTime2 = maxWait2
 		}
 
-		// Scroll to the bottom and wait for content to load
-		scrollHeight, err := page.Evaluate(fmt.Sprintf(expr, currentWaitTime))
+		// Scroll to the bottom of the page.
+		scrollHeight, err := page.Eval(fmt.Sprintf(expr, waitTime2))
 		if err != nil {
-			return scrollAttempts, err
+			return cnt, err
 		}
 
-		height, ok := scrollHeight.(int)
-		if !ok {
-			// Element not found or invalid height
-			if height, ok := scrollHeight.(float64); ok && height == -1 {
-				return scrollAttempts, fmt.Errorf("scroll element %q not found", scrollSelector)
-			}
-			return scrollAttempts, fmt.Errorf("scrollHeight is not an int: %v", scrollHeight)
+		// Handle both int and float64 (go-rod returns float64 for numbers)
+		var height int
+		switch v := scrollHeight.(type) {
+		case int:
+			height = v
+		case float64:
+			height = int(v)
+		default:
+			return cnt, fmt.Errorf("scrollHeight is not a number, got %T", scrollHeight)
 		}
 
-		// Call the callback to extract places at this depth
-		newItemsFound := 0
-		if callback != nil {
-			newItems, err := callback(page, i+1)
-			if err != nil {
-				return scrollAttempts, err
-			}
-			newItemsFound = newItems
-		}
-
-		// Check if height has changed (new content loaded)
 		if height == currentScrollHeight {
-			// Height didn't change, but if we found new items, don't increment stable count
-			if newItemsFound == 0 {
-				stableCount++
-
-				// Only exit early if we've seen stable height multiple times
-				// This ensures we don't exit prematurely due to slow network
-				if stableCount >= stableThreshold {
-					// Content appears fully loaded - no more items
-					break
-				}
-
-				// Content might still be loading, continue with increased wait time
-				waitTime += float64(retryWaitIncrease)
-			} else {
-				// Height stable but new items found - keep going
-				stableCount = 0
-			}
-		} else {
-			// New content loaded - reset stable count
-			stableCount = 0
-			currentScrollHeight = height
-
-			// Gradually increase wait time for subsequent scrolls
-			waitTime *= 1.3
+			break
 		}
 
-		// Respect context cancellation
+		currentScrollHeight = height
+
 		select {
 		case <-ctx.Done():
-			return scrollAttempts, nil
+			return currentScrollHeight, nil
 		default:
 		}
 
-		// Cap the wait time
-		if waitTime > float64(maxWait) {
-			waitTime = float64(maxWait)
-		}
-		if waitTime < float64(minWait) {
-			waitTime = float64(minWait)
+		waitTime *= 1.5
+
+		if waitTime > maxWait2 {
+			waitTime = maxWait2
 		}
 
-		// Additional small wait between scroll iterations to ensure smooth scrolling
-		//nolint:staticcheck // TODO replace with the new playwright API
-		page.WaitForTimeout(200)
+		page.WaitForTimeout(time.Duration(waitTime) * time.Millisecond)
 	}
 
-	return scrollAttempts, nil
+	return cnt, nil
 }

@@ -84,6 +84,7 @@ type Entry struct {
 	Timezone            string                 `json:"timezone"`
 	PriceRange          string                 `json:"price_range"`
 	DataID              string                 `json:"data_id"`
+	PlaceID             string                 `json:"place_id"`
 	Images              []Image                `json:"images"`
 	Reservations        []LinkSource           `json:"reservations"`
 	OrderOnline         []LinkSource           `json:"order_online"`
@@ -94,8 +95,6 @@ type Entry struct {
 	UserReviews         []Review               `json:"user_reviews"`
 	UserReviewsExtended []Review               `json:"user_reviews_extended"`
 	Emails              []string               `json:"emails"`
-	PlaceID             string                 `json:"place_id"`
-	PlaceIDURL          string                 `json:"place_id_url"`
 }
 
 func (e *Entry) haversineDistance(lat, lon float64) float64 {
@@ -125,74 +124,19 @@ func (e *Entry) isWithinRadius(lat, lon, radius float64) bool {
 	return distance <= radius
 }
 
-// extractPlaceIDFromURL extracts the Google Place ID from a Google Maps URL
-// The Place ID is typically found after !19s in the data parameter or in the URL path
-func extractPlaceIDFromURL(urlStr string) string {
-	// Try to extract from data parameter (!19s pattern)
-	// Example: ...data=!4m7!3m6!...!19sChIJES5XcgCrNTERBoqVAYILdCM...
-	if idx := strings.Index(urlStr, "!19s"); idx != -1 {
-		remainder := urlStr[idx+4:] // Skip "!19s"
-		// Place ID continues until the next ! or ? or end of string
-		endIdx := strings.IndexAny(remainder, "!?&")
-		if endIdx == -1 {
-			return remainder
-		}
-		return remainder[:endIdx]
-	}
-
-	return ""
-}
-
-// populatePlaceIDFromLink populates PlaceID and PlaceIDURL from the entry's Link field
-func (e *Entry) populatePlaceIDFromLink() {
-	if e.Link == "" {
-		return
-	}
-
-	placeID := extractPlaceIDFromURL(e.Link)
-	if placeID != "" {
-		e.PlaceID = placeID
-		// Create Place ID URL using the place_id parameter
-		e.PlaceIDURL = fmt.Sprintf("https://www.google.com/maps/place/?q=place_id:%s", placeID)
-	}
-}
-
 func (e *Entry) IsWebsiteValidForEmail() bool {
 	if e.WebSite == "" {
 		return false
 	}
 
-	// Parse URL to validate it's well-formed
-	parsedURL, err := url.Parse(e.WebSite)
-	if err != nil {
-		return false
-	}
-
-	// Check if URL has a valid scheme (http or https)
-	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
-		return false
-	}
-
-	// Check if URL has a valid host
-	if parsedURL.Host == "" {
-		return false
-	}
-
-	// Filter out social media and other platforms where email extraction is not useful
 	needles := []string{
 		"facebook",
-		"instragram", // keeping the typo for backward compatibility
-		"instagram",
+		"instragram",
 		"twitter",
-		"linkedin",
-		"youtube",
-		"tiktok",
-		"pinterest",
 	}
 
-	lowerWebsite := strings.ToLower(e.WebSite)
 	for i := range needles {
-		if strings.Contains(lowerWebsite, needles[i]) {
+		if strings.Contains(e.WebSite, needles[i]) {
 			return false
 		}
 	}
@@ -216,8 +160,6 @@ func (e *Entry) CsvHeaders() []string {
 	return []string{
 		"input_id",
 		"link",
-		"place_id",
-		"place_id_url",
 		"title",
 		"category",
 		"address",
@@ -239,6 +181,7 @@ func (e *Entry) CsvHeaders() []string {
 		"timezone",
 		"price_range",
 		"data_id",
+		"place_id",
 		"images",
 		"reservations",
 		"order_online",
@@ -256,8 +199,6 @@ func (e *Entry) CsvRow() []string {
 	return []string{
 		e.ID,
 		e.Link,
-		e.PlaceID,
-		e.PlaceIDURL,
 		e.Title,
 		e.Category,
 		e.Address,
@@ -279,6 +220,7 @@ func (e *Entry) CsvRow() []string {
 		e.Timezone,
 		e.PriceRange,
 		e.DataID,
+		e.PlaceID,
 		stringify(e.Images),
 		stringify(e.Reservations),
 		stringify(e.OrderOnline),
@@ -306,17 +248,29 @@ func (e *Entry) AddExtraReviews(pages [][]byte) {
 }
 
 func extractReviews(data []byte) []Review {
-	if len(data) >= 4 && string(data[0:4]) == `)]}'` {
-		data = data[4:] // Skip security prefix
+	// Skip the security prefix
+	prefix := ")]}'\n"
+	if len(data) >= len(prefix) && string(data[:len(prefix)]) == prefix {
+		data = data[len(prefix):]
+	} else if len(data) >= 4 && string(data[0:4]) == `)]}'` {
+		data = data[4:]
 	}
 
 	var jd []any
 	if err := json.Unmarshal(data, &jd); err != nil {
-		fmt.Printf("Error unmarshalling JSON: %v\n", err)
+		fmt.Printf("Error unmarshalling RPC JSON: %v (data len: %d)\n", err, len(data))
+		return nil
+	}
+
+	if len(jd) < 3 {
 		return nil
 	}
 
 	reviewsI := getNthElementAndCast[[]any](jd, 2)
+	if len(reviewsI) == 0 {
+		// Try alternative indices - Google may have changed the structure
+		reviewsI = getNthElementAndCast[[]any](jd, 0)
+	}
 
 	return parseReviews(reviewsI)
 }
@@ -376,7 +330,7 @@ func EntryFromJSON(raw []byte, reviewCountOnly ...bool) (entry Entry, err error)
 	)
 	entry.OpenHours = getHours(darray)
 	entry.PopularTimes = getPopularTimes(darray)
-	entry.WebSite = cleanWebsiteURL(getNthElementAndCast[string](darray, 7, 0))
+	entry.WebSite = extractActualURL(getNthElementAndCast[string](darray, 7, 0))
 	entry.Phone = getNthElementAndCast[string](darray, 178, 0, 0)
 	entry.PlusCode = getNthElementAndCast[string](darray, 183, 2, 2, 0)
 	entry.ReviewRating = getNthElementAndCast[float64](darray, 4, 7)
@@ -388,8 +342,9 @@ func EntryFromJSON(raw []byte, reviewCountOnly ...bool) (entry Entry, err error)
 	entry.ReviewsLink = getNthElementAndCast[string](darray, 4, 3, 0)
 	entry.Thumbnail = getNthElementAndCast[string](darray, 72, 0, 1, 6, 0)
 	entry.Timezone = getNthElementAndCast[string](darray, 30)
-	entry.PriceRange = normalizeTimeString(getNthElementAndCast[string](darray, 4, 2))
+	entry.PriceRange = getNthElementAndCast[string](darray, 4, 2)
 	entry.DataID = getNthElementAndCast[string](darray, 10)
+	entry.PlaceID = getNthElementAndCast[string](darray, 78)
 
 	items := getLinkSource(getLinkSourceParams{
 		arr:    getNthElementAndCast[[]any](darray, 171, 0),
@@ -480,8 +435,19 @@ func EntryFromJSON(raw []byte, reviewCountOnly ...bool) (entry Entry, err error)
 		5: int(getNthElementAndCast[float64](darray, 175, 3, 4)),
 	}
 
+	// Parse inline reviews from the page data
 	reviewsI := getNthElementAndCast[[]any](darray, 175, 9, 0, 0)
-	entry.UserReviews = make([]Review, 0, len(reviewsI))
+	if len(reviewsI) > 0 {
+		entry.UserReviews = parseReviews(reviewsI)
+	} else {
+		// Try alternative location for reviews
+		reviewsI = getNthElementAndCast[[]any](darray, 175, 9, 0)
+		if len(reviewsI) > 0 {
+			entry.UserReviews = parseReviews(reviewsI)
+		} else {
+			entry.UserReviews = make([]Review, 0)
+		}
+	}
 
 	return entry, nil
 }
@@ -491,16 +457,58 @@ func parseReviews(reviewsI []any) []Review {
 
 	for i := range reviewsI {
 		el := getNthElementAndCast[[]any](reviewsI, i, 0)
+		if len(el) == 0 {
+			// Try alternative structure
+			el = getNthElementAndCast[[]any](reviewsI, i)
+			if len(el) == 0 {
+				continue
+			}
+		}
 
+		// Try multiple paths for the timestamp
 		time := getNthElementAndCast[[]any](el, 2, 2, 0, 1, 21, 6, 8)
+		if len(time) == 0 {
+			time = getNthElementAndCast[[]any](el, 2, 2, 0, 1, 6, 8)
+		}
 
+		// Try multiple paths for profile picture
 		profilePic, err := decodeURL(getNthElementAndCast[string](el, 1, 4, 5, 1))
-		if err != nil {
-			profilePic = ""
+		if err != nil || profilePic == "" {
+			profilePic = getNthElementAndCast[string](el, 1, 2, 0)
+			if profilePic == "" {
+				profilePic = getNthElementAndCast[string](el, 0, 2, 0)
+			}
+		}
+
+		// Try multiple paths for author name
+		authorName := getNthElementAndCast[string](el, 1, 4, 5, 0)
+		if authorName == "" {
+			authorName = getNthElementAndCast[string](el, 1, 4, 4)
+			if authorName == "" {
+				authorName = getNthElementAndCast[string](el, 0, 1)
+			}
+		}
+
+		// Try multiple paths for rating
+		rating := int(getNthElementAndCast[float64](el, 2, 0, 0))
+		if rating == 0 {
+			rating = int(getNthElementAndCast[float64](el, 2, 0))
+			if rating == 0 {
+				rating = int(getNthElementAndCast[float64](el, 1, 0, 0))
+			}
+		}
+
+		// Try multiple paths for description
+		description := getNthElementAndCast[string](el, 2, 15, 0, 0)
+		if description == "" {
+			description = getNthElementAndCast[string](el, 2, 15, 0)
+			if description == "" {
+				description = getNthElementAndCast[string](el, 3, 0)
+			}
 		}
 
 		review := Review{
-			Name:           getNthElementAndCast[string](el, 1, 4, 5, 0),
+			Name:           authorName,
 			ProfilePicture: profilePic,
 			When: func() string {
 				if len(time) < 3 {
@@ -509,19 +517,23 @@ func parseReviews(reviewsI []any) []Review {
 
 				return fmt.Sprintf("%v-%v-%v", time[0], time[1], time[2])
 			}(),
-			Rating:      int(getNthElementAndCast[float64](el, 2, 0, 0)),
-			Description: getNthElementAndCast[string](el, 2, 15, 0, 0),
+			Rating:      rating,
+			Description: description,
 		}
 
 		if review.Name == "" {
 			continue
 		}
 
+		// Try multiple paths for images
 		optsI := getNthElementAndCast[[]any](el, 2, 2, 0, 1, 21, 7)
+		if len(optsI) == 0 {
+			optsI = getNthElementAndCast[[]any](el, 2, 2, 0, 1, 7)
+		}
 
 		for j := range optsI {
 			val := getNthElementAndCast[string](optsI, j)
-			if val != "" {
+			if val != "" && len(val) > 2 {
 				review.Images = append(review.Images, val[2:])
 			}
 		}
@@ -558,180 +570,60 @@ func getLinkSource(params getLinkSourceParams) []LinkSource {
 
 //nolint:gomnd // it's ok, I need the indexes
 func getHours(darray []any) map[string][]string {
-	// Try multiple known index locations where Google has stored hours
-	// Google frequently changes these indices, so we try several
-	knownPaths := [][]int{
-		{203, 0}, // New (Nov 2025) per field report
-		{34, 1},  // legacy
-		{30, 1},
-		{35, 1},
-		{33, 1},
-		{34, 0},
-		{31, 1},
-		// Some newer shapes embed hours under different nodes
-		{100, 3},
-		{84, 3},
+	// Try new structure first (as of Nov 2025) - darray[203][0]
+	items := getNthElementAndCast[[]any](darray, 203, 0)
+	if len(items) == 0 {
+		// Fall back to old structure - darray[34][1]
+		items = getNthElementAndCast[[]any](darray, 34, 1)
 	}
 
-	// 1) Try known direct paths with textual weekday -> times mapping
-	var items []any
-	for _, path := range knownPaths {
-		if len(path) == 2 {
-			items = getNthElementAndCast[[]any](darray, path[0], path[1])
-			if looksLikeHoursData(items) {
-				return hoursFromDayStringArray(items)
-			}
-		}
-	}
-
-	// 2) Deep recursive search for arrays like [["Monday", ...], ...]
-	if items = findHoursByPattern(darray); len(items) > 0 {
-		return hoursFromDayStringArray(items)
-	}
-
-	// 3) Deep recursive search for numeric pattern: [[day,[ [start,end], ... ]], ...]
-	if num := findHoursNumericPattern(darray); len(num) > 0 {
-		return num
-	}
-
-	// Not found
-	return map[string][]string{}
-}
-
-// looksLikeHoursData validates if an array appears to be hours data
-// by checking if it contains at least 3 valid weekday entries
-func looksLikeHoursData(items []any) bool {
-	if len(items) < 3 {
-		return false
-	}
-
-	weekdays := map[string]bool{
-		"monday": true, "tuesday": true, "wednesday": true, "thursday": true,
-		"friday": true, "saturday": true, "sunday": true,
-		// common abbreviations
-		"mon": true, "tue": true, "tues": true, "wed": true, "thu": true, "thur": true, "thurs": true, "fri": true, "sat": true, "sun": true,
-	}
-
-	validCount := 0
-	for _, item := range items {
-		if itemArr, ok := item.([]any); ok && len(itemArr) >= 2 {
-			if dayName, ok := itemArr[0].(string); ok && weekdays[strings.ToLower(dayName)] {
-				validCount++
-			}
-		}
-	}
-
-	return validCount >= 3
-}
-
-// findHoursByPattern searches for hours data by pattern matching
-// Hours data typically has the structure: [["Monday", ["time"]], ["Tuesday", ["time"]], ...]
-func findHoursByPattern(arr []any) []any {
-	weekdays := map[string]bool{
-		"monday": true, "tuesday": true, "wednesday": true, "thursday": true,
-		"friday": true, "saturday": true, "sunday": true,
-		// common abbreviations
-		"mon": true, "tue": true, "tues": true, "wed": true, "thu": true, "thur": true, "thurs": true, "fri": true, "sat": true, "sun": true,
-	}
-
-	var searchRecursive func([]any, int) []any
-	searchRecursive = func(current []any, depth int) []any {
-		if depth > 10 || len(current) == 0 {
-			return nil
-		}
-
-		// Check if current array itself is hours data
-		// Format: [["Monday", ...], ["Tuesday", ...], ...]
-		if len(current) >= 2 {
-			validCount := 0
-			for _, item := range current {
-				if itemArr, ok := item.([]any); ok && len(itemArr) >= 2 {
-					if dayName, ok := itemArr[0].(string); ok && weekdays[strings.ToLower(dayName)] {
-						validCount++
-					}
-				}
-			}
-			// If we found at least 3 valid weekdays, this is likely hours data
-			if validCount >= 3 {
-				return current
-			}
-		}
-
-		// Search through each element
-		for _, item := range current {
-			if subArr, ok := item.([]any); ok {
-				// Check if this sub-array is hours data
-				if found := searchRecursive(subArr, depth+1); found != nil {
-					return found
-				}
-			}
-		}
-
-		return nil
-	}
-
-	return searchRecursive(arr, 0)
-}
-
-// hoursFromDayStringArray converts an array like [["Monday", ["9 AM–5 PM"]], ...] into a map
-func hoursFromDayStringArray(items []any) map[string][]string {
 	hours := make(map[string][]string, len(items))
-	normalize := func(day string) string {
-		switch strings.ToLower(day) {
-		case "mon", "monday":
-			return "Monday"
-		case "tue", "tues", "tuesday":
-			return "Tuesday"
-		case "wed", "wednesday":
-			return "Wednesday"
-		case "thu", "thur", "thurs", "thursday":
-			return "Thursday"
-		case "fri", "friday":
-			return "Friday"
-		case "sat", "saturday":
-			return "Saturday"
-		case "sun", "sunday":
-			return "Sunday"
-		default:
-			return day
-		}
-	}
 
 	for _, item := range items {
-		itemArr, ok := item.([]any)
-		if !ok || len(itemArr) < 2 {
-			continue
-		}
-
-		day, ok := itemArr[0].(string)
+		itemArray, ok := item.([]any)
 		if !ok {
 			continue
 		}
-		day = normalize(day)
 
-		// array of strings times (old structure index 1)
-		if timesI, ok := itemArr[1].([]any); ok && len(timesI) > 0 {
-			times := make([]string, 0, len(timesI))
-			for i := range timesI {
-				if timeStr, ok := timesI[i].(string); ok && timeStr != "" {
-					times = append(times, normalizeTimeString(timeStr))
+		// New structure: [0] = day name, [3] = time slots array
+		day := getNthElementAndCast[string](itemArray, 0)
+		if day == "" {
+			continue
+		}
+
+		// Try new structure for times
+		timeSlotsI := getNthElementAndCast[[]any](itemArray, 3)
+		if len(timeSlotsI) > 0 {
+			// New format: each slot is [formatted_string, [[hour, min], [hour, min]]]
+			times := make([]string, 0, len(timeSlotsI))
+
+			for _, slot := range timeSlotsI {
+				slotArray, ok := slot.([]any)
+				if !ok || len(slotArray) == 0 {
+					continue
+				}
+
+				// Get the formatted time string (e.g., "11 am–1:30 pm")
+				timeStr := getNthElementAndCast[string](slotArray, 0)
+				if timeStr != "" {
+					times = append(times, timeStr)
 				}
 			}
+
 			if len(times) > 0 {
 				hours[day] = times
 			}
-		} else if timeStr, ok := itemArr[1].(string); ok && timeStr != "" {
-			hours[day] = []string{normalizeTimeString(timeStr)}
-		} else if timeSlotsI, ok := itemArr[3].([]any); ok && len(timeSlotsI) > 0 { // new structure index 3
-			// New format: each slot is [formatted_string, [[hour, min], [hour, min]]]
-			times := make([]string, 0, len(timeSlotsI))
-			for _, slot := range timeSlotsI {
-				if slotArr, ok := slot.([]any); ok && len(slotArr) > 0 {
-					if timeStr, ok := slotArr[0].(string); ok && timeStr != "" {
-						times = append(times, normalizeTimeString(timeStr))
-					}
+		} else {
+			// Fall back to old structure: [1] = times array
+			timesI := getNthElementAndCast[[]any](itemArray, 1)
+			times := make([]string, 0, len(timesI))
+
+			for i := range timesI {
+				if timeStr, ok := timesI[i].(string); ok {
+					times = append(times, timeStr)
 				}
 			}
+
 			if len(times) > 0 {
 				hours[day] = times
 			}
@@ -739,151 +631,6 @@ func hoursFromDayStringArray(items []any) map[string][]string {
 	}
 
 	return hours
-}
-
-// findHoursNumericPattern searches for arrays like [[day,[ [start,end], ... ]], ...]
-// where day is 1..7 (Mon..Sun) and start/end are integers representing minutes or seconds since midnight.
-func findHoursNumericPattern(arr []any) map[string][]string {
-	dayMap := map[int]string{1: "Monday", 2: "Tuesday", 3: "Wednesday", 4: "Thursday", 5: "Friday", 6: "Saturday", 7: "Sunday"}
-
-	var res map[string][]string
-
-	var dfs func([]any, int)
-	dfs = func(cur []any, depth int) {
-		if res != nil || depth > 12 || len(cur) == 0 {
-			return
-		}
-
-		// Does this look like [[day, intervals], ...] with day as number and intervals as [[a,b], ...]?
-		if len(cur) >= 3 { // at least 3 weekdays to be confident
-			valid := 0
-			tmp := make(map[string][][2]int, 7)
-			for _, it := range cur {
-				pair, ok := it.([]any)
-				if !ok || len(pair) < 2 {
-					continue
-				}
-				dayF, ok := pair[0].(float64)
-				if !ok {
-					continue
-				}
-				dayName, ok := dayMap[int(dayF)]
-				if !ok {
-					continue
-				}
-				intervalsArr, ok := pair[1].([]any)
-				if !ok {
-					continue
-				}
-				intervals := make([][2]int, 0, len(intervalsArr))
-				for _, inter := range intervalsArr {
-					iv, ok := inter.([]any)
-					if !ok || len(iv) < 2 {
-						continue
-					}
-					a, aok := iv[0].(float64)
-					b, bok := iv[1].(float64)
-					if !aok || !bok {
-						continue
-					}
-					intervals = append(intervals, [2]int{int(a), int(b)})
-				}
-				if len(intervals) > 0 {
-					tmp[dayName] = intervals
-					valid++
-				}
-			}
-
-			if valid >= 3 {
-				// Convert to strings
-				out := make(map[string][]string, len(tmp))
-				for day, ivs := range tmp {
-					for _, iv := range ivs {
-						out[day] = append(out[day], formatInterval(iv[0], iv[1]))
-					}
-				}
-				res = out
-				return
-			}
-		}
-
-		for _, it := range cur {
-			if sub, ok := it.([]any); ok {
-				dfs(sub, depth+1)
-				if res != nil {
-					return
-				}
-			}
-		}
-	}
-
-	dfs(arr, 0)
-	if res == nil {
-		return map[string][]string{}
-	}
-	return res
-}
-
-// formatInterval converts [start,end] into a human-readable string.
-// It tries to detect whether the numbers are minutes (<= 1440) or seconds (<= 86400).
-func formatInterval(a, b int) string {
-	toHM := func(x int) (int, int) {
-		h := x / 60
-		m := x % 60
-		return h, m
-	}
-
-	// Detect units
-	minutes := true
-	if a > 1440 || b > 1440 { // likely seconds
-		minutes = false
-	}
-
-	var h1, m1, h2, m2 int
-	if minutes {
-		h1, m1 = toHM(a)
-		h2, m2 = toHM(b)
-	} else {
-		// seconds to minutes
-		h1, m1 = toHM(a / 60)
-		h2, m2 = toHM(b / 60)
-	}
-
-	return fmt.Sprintf("%02d:%02d-%02d:%02d", h1, m1, h2, m2)
-}
-
-// normalizeTimeString replaces exotic unicode spaces/dashes with ASCII so that CSV viewers on Windows
-// (e.g., Excel with non-UTF-8 defaults) don't show mojibake like "â€¯" or "â€“".
-func normalizeTimeString(s string) string {
-	// Replace various narrow/thin/nb spaces with regular space
-	replacer := strings.NewReplacer(
-		"\u202F", " ", // NARROW NO-BREAK SPACE
-		"\u00A0", " ", // NO-BREAK SPACE
-		"\u2009", " ", // THIN SPACE
-		"\u200A", " ",
-		"\u2005", " ",
-		"\u2006", " ",
-		"\u2007", " ",
-		"\u2008", " ",
-		"\u2002", " ",
-		"\u2003", " ",
-		"\u2004", " ",
-		"\uFEFF", "",   // ZERO WIDTH NO-BREAK SPACE (BOM)
-		"\u200B", "",   // ZERO WIDTH SPACE
-		// Dashes/minus variants to ASCII hyphen
-		"\u2013", "-", // EN DASH
-		"\u2014", "-", // EM DASH
-		"\u2212", "-", // MINUS SIGN
-		"–", "-",
-		"—", "-",
-	)
-	out := replacer.Replace(s)
-	// Collapse multiple spaces
-	out = strings.TrimSpace(out)
-	for strings.Contains(out, "  ") {
-		out = strings.ReplaceAll(out, "  ", " ")
-	}
-	return out
 }
 
 func getPopularTimes(darray []any) map[string]map[int]int {
@@ -972,7 +719,6 @@ func getNthElementAndCast[T any](arr []any, indexes ...int) T {
 		return defaultVal
 	}
 
-	// Bounds check to prevent panic when index is out of range
 	if indexes[0] >= len(arr) {
 		return defaultVal
 	}
@@ -1071,30 +817,4 @@ func filterAndSortEntriesWithinRadius(entries []*Entry, lat, lon, radius float64
 	}
 
 	return slices.Collect(iter.Seq[*Entry](resultIterator))
-}
-
-// cleanWebsiteURL extracts the actual URL from Google redirect URLs
-// Google Maps often returns URLs like "/url?q=http://example.com/&..."
-// This function extracts the actual URL from the "q" parameter
-func cleanWebsiteURL(rawURL string) string {
-	if rawURL == "" {
-		return ""
-	}
-
-	// Check if this is a Google redirect URL
-	if strings.HasPrefix(rawURL, "/url?") {
-		// Parse the query parameters
-		parsedURL, err := url.Parse(rawURL)
-		if err != nil {
-			return rawURL
-		}
-
-		// Extract the "q" parameter which contains the actual URL
-		actualURL := parsedURL.Query().Get("q")
-		if actualURL != "" {
-			return actualURL
-		}
-	}
-
-	return rawURL
 }
