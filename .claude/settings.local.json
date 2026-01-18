@@ -53,7 +53,8 @@
       "Bash(do git show 9f097a8:\"$f\")",
       "Bash(echo:*)",
       "Bash(done)",
-      "Bash(git grep:*)"
+      "Bash(git grep:*)",
+      "Bash(git commit:*)"
     ],
     "deny": [],
     "ask": []

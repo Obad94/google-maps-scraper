@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -178,6 +179,83 @@ type DisplayNameInfo struct {
 type LocationInfo struct {
 	Latitude  float64 `json:"latitude"`
 	Longitude float64 `json:"longitude"`
+}
+
+// normalizeToPlaceType converts common search keywords to valid Google Places API types
+// See: https://developers.google.com/maps/documentation/places/web-service/place-types
+var keywordToPlaceType = map[string]string{
+	// Common plurals to singular
+	"restaurants":      "restaurant",
+	"cafes":            "cafe",
+	"bars":             "bar",
+	"hotels":           "hotel",
+	"hospitals":        "hospital",
+	"pharmacies":       "pharmacy",
+	"banks":            "bank",
+	"atms":             "atm",
+	"gyms":             "gym",
+	"parks":            "park",
+	"schools":          "school",
+	"churches":         "church",
+	"mosques":          "mosque",
+	"temples":          "hindu_temple",
+	"supermarkets":     "supermarket",
+	"gas stations":     "gas_station",
+	"gas_stations":     "gas_station",
+	"parking lots":     "parking",
+	"parking_lots":     "parking",
+	"shopping malls":   "shopping_mall",
+	"shopping_malls":   "shopping_mall",
+	"movie theaters":   "movie_theater",
+	"movie_theaters":   "movie_theater",
+	"bakeries":         "bakery",
+	"dentists":         "dentist",
+	"doctors":          "doctor",
+	"lawyers":          "lawyer",
+	"salons":           "beauty_salon",
+	"spas":             "spa",
+	"museums":          "museum",
+	"libraries":        "library",
+	"airports":         "airport",
+	"train stations":   "train_station",
+	"train_stations":   "train_station",
+	"bus stations":     "bus_station",
+	"bus_stations":     "bus_station",
+	"car rentals":      "car_rental",
+	"car_rentals":      "car_rental",
+	"car washes":       "car_wash",
+	"car_washes":       "car_wash",
+	"laundries":        "laundry",
+	"pet stores":       "pet_store",
+	"pet_stores":       "pet_store",
+	"electronics stores": "electronics_store",
+	"electronics_stores": "electronics_store",
+	"clothing stores":  "clothing_store",
+	"clothing_stores":  "clothing_store",
+	"book stores":      "book_store",
+	"book_stores":      "book_store",
+	"florists":         "florist",
+	"furniture stores": "furniture_store",
+	"furniture_stores": "furniture_store",
+	"hardware stores":  "hardware_store",
+	"hardware_stores":  "hardware_store",
+	"jewelry stores":   "jewelry_store",
+	"jewelry_stores":   "jewelry_store",
+	"liquor stores":    "liquor_store",
+	"liquor_stores":    "liquor_store",
+	"shoe stores":      "shoe_store",
+	"shoe_stores":      "shoe_store",
+	"convenience stores": "convenience_store",
+	"convenience_stores": "convenience_store",
+}
+
+// normalizeKeywordToType converts a keyword to a valid Google Places type
+func normalizeKeywordToType(keyword string) string {
+	keyword = strings.ToLower(strings.TrimSpace(keyword))
+	if placeType, ok := keywordToPlaceType[keyword]; ok {
+		return placeType
+	}
+	return keyword // Return as-is if no mapping found
 }
 
 // SearchNearbyPlaces searches for places near a location using Google Places API (New)

@@ -547,32 +547,6 @@ func (s *Server) scrape(w http.ResponseWriter, r *http.Request) {
 	}
 	// If empty, ExitOnInactivity stays at 0 (disabled)
 
-	keywordsStr, ok := r.Form["keywords"]
-	if !ok {
-		http.Error(w, "missing keywords", http.StatusUnprocessableEntity)
-
-		return
-	}
-
-	keywords := strings.Split(keywordsStr[0], "\n")
-	for _, k := range keywords {
-		k = strings.TrimSpace(k)
-		if k == "" {
-			continue
-		}
-
-		newJob.Data.Keywords = append(newJob.Data.Keywords, k)
-	}
-
-	newJob.Data.Lang = r.Form.Get("lang")
-
-	newJob.Data.Zoom, err = strconv.Atoi(r.Form.Get("zoom"))
-	if err != nil {
-		http.Error(w, "invalid zoom", http.StatusUnprocessableEntity)
-
-		return
-	}
-
 	// Parse mode from radio buttons (regular/fast/nearby/hybrid/browserapi)
 	mode := r.Form.Get("mode")
 	switch mode {
@@ -585,6 +559,46 @@ func (s *Server) scrape(w http.ResponseWriter, r *http.Request) {
 	case "browserapi":
 		newJob.Data.BrowserAPIMode = true
 	// default case is "regular" mode - all mode flags remain false
+	}
+
+	// Handle keywords - for BrowserAPI mode, use place_types dropdown; otherwise use keywords textarea
+	if newJob.Data.BrowserAPIMode {
+		placeTypes, ok := r.Form["place_types"]
+		if !ok || len(placeTypes) == 0 {
+			http.Error(w, "please select at least one place type", http.StatusUnprocessableEntity)
+			return
+		}
+		// Each selected option comes as a separate item in the array
+		for _, pt := range placeTypes {
+			pt = strings.TrimSpace(pt)
+			if pt != "" {
+				newJob.Data.Keywords = append(newJob.Data.Keywords, pt)
+			}
+		}
+	} else {
+		keywordsStr, ok := r.Form["keywords"]
+		if !ok {
+			http.Error(w, "missing keywords", http.StatusUnprocessableEntity)
+			return
+		}
+
+		keywords := strings.Split(keywordsStr[0], "\n")
+		for _, k := range keywords {
+			k = strings.TrimSpace(k)
+			if k == "" {
+				continue
+			}
+
+			newJob.Data.Keywords = append(newJob.Data.Keywords, k)
+		}
+	}
+
+	newJob.Data.Lang = r.Form.Get("lang")
+
+	newJob.Data.Zoom, err = strconv.Atoi(r.Form.Get("zoom"))
+	if err != nil {
+		http.Error(w, "invalid zoom", http.StatusUnprocessableEntity)
+		return
 	}
 
 	newJob.Data.Radius, err = strconv.Atoi(r.Form.Get("radius"))
