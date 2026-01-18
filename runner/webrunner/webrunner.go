@@ -19,7 +19,6 @@ import (
 	"github.com/gosom/google-maps-scraper/runner"
 	"github.com/gosom/google-maps-scraper/tlmt"
 	"github.com/gosom/google-maps-scraper/web"
-	"github.com/gosom/google-maps-scraper/web/sqlite"
 	"github.com/gosom/scrapemate"
 	"github.com/gosom/scrapemate/adapters/writers/csvwriter"
 	"github.com/gosom/scrapemate/scrapemateapp"
@@ -43,56 +42,35 @@ func New(cfg *runner.Config) (runner.Runner, error) {
 		return nil, err
 	}
 
-	// Check if PostgreSQL is configured (DATABASE_URL environment variable)
-	var repo web.JobRepository
-	var apiKeyRepo web.APIKeyRepository
-	var authSvc *web.AuthService
-	var svc *web.Service
-	var apiKeySvc *web.APIKeyService
-
+	// PostgreSQL is now mandatory - DATABASE_URL environment variable is required
 	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL != "" {
-		log.Printf("PostgreSQL configured (DATABASE_URL found)")
-		pgDB, err := openPostgresConn(databaseURL)
-		if err != nil {
-			return nil, fmt.Errorf("failed to connect to PostgreSQL: %w", err)
-		}
-
-		// Use PostgreSQL for everything
-		repo = postgres.NewJobRepository(pgDB)
-		apiKeyRepo = postgres.NewAPIKeyRepository(pgDB)
-		svc = web.NewService(repo, cfg.DataFolder)
-		apiKeySvc = web.NewAPIKeyService(apiKeyRepo)
-
-		// Create PostgreSQL auth repositories
-		userRepo := postgres.NewUserRepository(pgDB)
-		sessionRepo := postgres.NewUserSessionRepository(pgDB)
-		authSvc = web.NewAuthService(userRepo, sessionRepo, nil) // nil for audit repo
-		log.Printf("PostgreSQL enabled for all data (jobs, API keys, authentication)")
-	} else {
-		// Fallback to SQLite
-		log.Printf("No DATABASE_URL configured. Using SQLite.")
-		const dbfname = "jobs.db"
-		dbpath := filepath.Join(cfg.DataFolder, dbfname)
-
-		db, err := sqlite.InitDB(dbpath)
-		if err != nil {
-			return nil, err
-		}
-
-		repo = sqlite.NewWithDB(db)
-		svc = web.NewService(repo, cfg.DataFolder)
-		apiKeyRepo = sqlite.NewAPIKeyRepository(db)
-		apiKeySvc = web.NewAPIKeyService(apiKeyRepo)
-
-		// Use SQLite for auth
-		userRepo := sqlite.NewUserRepository(db)
-		sessionRepo := sqlite.NewSessionRepository(db)
-		authSvc = web.NewAuthService(userRepo, sessionRepo, nil)
+	if databaseURL == "" {
+		return nil, fmt.Errorf("DATABASE_URL environment variable is required. PostgreSQL is mandatory for this application.")
 	}
 
-	// Create server with API key support and auth service
-	srv, err := web.NewWithAPIKeysAndAuth(svc, apiKeySvc, authSvc, cfg.Addr)
+	log.Printf("Connecting to PostgreSQL (DATABASE_URL found)")
+	pgDB, err := openPostgresConn(databaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to PostgreSQL: %w", err)
+	}
+
+	// Use PostgreSQL for everything
+	repo := postgres.NewJobRepository(pgDB)
+	apiKeyRepo := postgres.NewAPIKeyRepository(pgDB)
+	svc := web.NewService(repo, cfg.DataFolder)
+	apiKeySvc := web.NewAPIKeyService(apiKeyRepo)
+
+	// Create PostgreSQL auth repositories
+	userRepo := postgres.NewUserRepository(pgDB)
+	sessionRepo := postgres.NewUserSessionRepository(pgDB)
+	memberRepo := postgres.NewOrganizationMemberRepository(pgDB)
+	authSvc := web.NewAuthService(userRepo, sessionRepo, nil) // nil for audit repo
+	log.Printf("PostgreSQL connected successfully - all data will be stored in PostgreSQL (jobs, API keys, authentication)")
+
+	// Create server with API key support, auth service, and member repo for multi-tenancy
+	srv, err := web.NewWithOptions(svc, apiKeySvc, authSvc, cfg.Addr, &web.ServerOptions{
+		MemberRepo: memberRepo,
+	})
 	if err != nil {
 		return nil, err
 	}

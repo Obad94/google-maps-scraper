@@ -17,7 +17,7 @@ func NewAPIKeyRepository(db *sql.DB) web.APIKeyRepository {
 }
 
 func (r *apiKeyRepo) Get(ctx context.Context, id string) (web.APIKey, error) {
-	const q = `SELECT id, name, key_hash, status, created_at, updated_at, last_used_at, expires_at
+	const q = `SELECT id, name, key_hash, status, organization_id, created_by, created_at, updated_at, last_used_at, expires_at
 		FROM api_keys WHERE id = ?`
 
 	row := r.db.QueryRowContext(ctx, q, id)
@@ -26,7 +26,7 @@ func (r *apiKeyRepo) Get(ctx context.Context, id string) (web.APIKey, error) {
 }
 
 func (r *apiKeyRepo) GetByKey(ctx context.Context, keyHash string) (web.APIKey, error) {
-	const q = `SELECT id, name, key_hash, status, created_at, updated_at, last_used_at, expires_at
+	const q = `SELECT id, name, key_hash, status, organization_id, created_by, created_at, updated_at, last_used_at, expires_at
 		FROM api_keys WHERE key_hash = ?`
 
 	row := r.db.QueryRowContext(ctx, q, keyHash)
@@ -36,8 +36,16 @@ func (r *apiKeyRepo) GetByKey(ctx context.Context, keyHash string) (web.APIKey, 
 
 func (r *apiKeyRepo) Create(ctx context.Context, apiKey *web.APIKey) error {
 	const q = `INSERT INTO api_keys
-		(id, name, key_hash, status, created_at, updated_at, last_used_at, expires_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+		(id, name, key_hash, status, organization_id, created_by, created_at, updated_at, last_used_at, expires_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+
+	var orgID, createdBy interface{}
+	if apiKey.OrganizationID != "" {
+		orgID = apiKey.OrganizationID
+	}
+	if apiKey.CreatedBy != "" {
+		createdBy = apiKey.CreatedBy
+	}
 
 	var lastUsedAt, expiresAt *int64
 	if apiKey.LastUsedAt != nil {
@@ -54,6 +62,8 @@ func (r *apiKeyRepo) Create(ctx context.Context, apiKey *web.APIKey) error {
 		apiKey.Name,
 		apiKey.KeyHash,
 		apiKey.Status,
+		orgID,
+		createdBy,
 		apiKey.CreatedAt.Unix(),
 		apiKey.UpdatedAt.Unix(),
 		lastUsedAt,
@@ -72,14 +82,32 @@ func (r *apiKeyRepo) Delete(ctx context.Context, id string) error {
 }
 
 func (r *apiKeyRepo) Select(ctx context.Context, params web.APIKeySelectParams) ([]web.APIKey, error) {
-	q := `SELECT id, name, key_hash, status, created_at, updated_at, last_used_at, expires_at
+	q := `SELECT id, name, key_hash, status, organization_id, created_by, created_at, updated_at, last_used_at, expires_at
 		FROM api_keys`
 
 	var args []interface{}
+	var conditions []string
+
+	if params.OrganizationID != "" {
+		conditions = append(conditions, "organization_id = ?")
+		args = append(args, params.OrganizationID)
+	}
+
+	if params.CreatedBy != "" {
+		conditions = append(conditions, "created_by = ?")
+		args = append(args, params.CreatedBy)
+	}
 
 	if params.Status != "" {
-		q += ` WHERE status = ?`
+		conditions = append(conditions, "status = ?")
 		args = append(args, params.Status)
+	}
+
+	if len(conditions) > 0 {
+		q += " WHERE " + conditions[0]
+		for i := 1; i < len(conditions); i++ {
+			q += " AND " + conditions[i]
+		}
 	}
 
 	q += " ORDER BY created_at DESC"
@@ -143,6 +171,7 @@ func (r *apiKeyRepo) Update(ctx context.Context, apiKey *web.APIKey) error {
 
 func rowToAPIKey(row scannable) (web.APIKey, error) {
 	var apiKey web.APIKey
+	var orgID, createdBy sql.NullString
 	var createdAt, updatedAt int64
 	var lastUsedAt, expiresAt sql.NullInt64
 
@@ -151,6 +180,8 @@ func rowToAPIKey(row scannable) (web.APIKey, error) {
 		&apiKey.Name,
 		&apiKey.KeyHash,
 		&apiKey.Status,
+		&orgID,
+		&createdBy,
 		&createdAt,
 		&updatedAt,
 		&lastUsedAt,
@@ -158,6 +189,14 @@ func rowToAPIKey(row scannable) (web.APIKey, error) {
 	)
 	if err != nil {
 		return web.APIKey{}, err
+	}
+
+	// Set organization fields
+	if orgID.Valid {
+		apiKey.OrganizationID = orgID.String
+	}
+	if createdBy.Valid {
+		apiKey.CreatedBy = createdBy.String
 	}
 
 	// Convert Unix timestamps to time.Time

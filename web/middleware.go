@@ -9,8 +9,9 @@ import (
 type contextKey string
 
 const (
-	contextKeyUser   contextKey = "user"
-	contextKeyMember contextKey = "member"
+	contextKeyUser           contextKey = "user"
+	contextKeyMember         contextKey = "member"
+	contextKeyOrganizationID contextKey = "organization_id"
 )
 
 // APIKeyAuthMiddleware checks for a valid API key in the request
@@ -34,8 +35,8 @@ func APIKeyAuthMiddleware(apiKeyService *APIKeyService) func(http.Handler) http.
 				return
 			}
 
-			// Validate API key
-			_, err := apiKeyService.Validate(ctx, apiKey)
+			// Validate API key and get updated context with organization
+			_, newCtx, err := apiKeyService.Validate(ctx, apiKey)
 			if err != nil {
 				renderJSON(w, http.StatusUnauthorized, apiError{
 					Code:    http.StatusUnauthorized,
@@ -44,8 +45,8 @@ func APIKeyAuthMiddleware(apiKeyService *APIKeyService) func(http.Handler) http.
 				return
 			}
 
-			// API key is valid, proceed to next handler
-			next.ServeHTTP(w, r)
+			// API key is valid, proceed to next handler with updated context
+			next.ServeHTTP(w, r.WithContext(newCtx))
 		})
 	}
 }
@@ -78,7 +79,7 @@ func extractAPIKey(r *http.Request) string {
 	return ""
 }
 
-// SessionAuthMiddleware validates session and injects user into context
+// SessionAuthMiddleware validates session and injects user + organization into context
 func (s *Server) SessionAuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Extract token from header or cookie
@@ -105,6 +106,16 @@ func (s *Server) SessionAuthMiddleware(next http.Handler) http.Handler {
 
 		// Inject user into context
 		ctx := context.WithValue(r.Context(), contextKeyUser, user)
+
+		// Get user's first organization and inject into context
+		if s.memberRepo != nil {
+			orgs, err := s.memberRepo.GetUserOrganizations(ctx, user.ID)
+			if err == nil && len(orgs) > 0 {
+				// Use first organization as default
+				ctx = context.WithValue(ctx, contextKeyOrganizationID, orgs[0].ID)
+			}
+		}
+
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -140,11 +151,11 @@ func (s *Server) APIOrSessionAuthMiddleware(next http.Handler) http.Handler {
 		if s.apiKeySvc != nil {
 			apiKey := extractAPIKey(r)
 			if apiKey != "" {
-				// Validate API key
-				_, err := s.apiKeySvc.Validate(ctx, apiKey)
+				// Validate API key and get updated context with organization
+				_, newCtx, err := s.apiKeySvc.Validate(ctx, apiKey)
 				if err == nil {
-					// API key is valid, proceed
-					next.ServeHTTP(w, r)
+					// API key is valid, proceed with updated context (includes org)
+					next.ServeHTTP(w, r.WithContext(newCtx))
 					return
 				}
 				// API key provided but invalid - return error immediately
@@ -182,6 +193,16 @@ func (s *Server) APIOrSessionAuthMiddleware(next http.Handler) http.Handler {
 
 		// Inject user into context
 		ctx = context.WithValue(ctx, contextKeyUser, user)
+
+		// Get user's first organization and inject into context
+		if s.memberRepo != nil {
+			orgs, err := s.memberRepo.GetUserOrganizations(ctx, user.ID)
+			if err == nil && len(orgs) > 0 {
+				// Use first organization as default
+				ctx = context.WithValue(ctx, contextKeyOrganizationID, orgs[0].ID)
+			}
+		}
+
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -202,6 +223,15 @@ func getMemberFromContext(ctx context.Context) *OrganizationMember {
 		return nil
 	}
 	return member
+}
+
+// getOrganizationIDFromContext retrieves the organization ID from the request context
+func getOrganizationIDFromContext(ctx context.Context) string {
+	orgID, ok := ctx.Value(contextKeyOrganizationID).(string)
+	if !ok {
+		return ""
+	}
+	return orgID
 }
 
 // WebAuthMiddleware protects web pages by redirecting to login if not authenticated
@@ -235,8 +265,18 @@ func (s *Server) WebAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		// Inject user into context and proceed
+		// Inject user into context
 		ctx := context.WithValue(r.Context(), contextKeyUser, user)
+
+		// Get user's first organization and inject into context
+		if s.memberRepo != nil {
+			orgs, err := s.memberRepo.GetUserOrganizations(ctx, user.ID)
+			if err == nil && len(orgs) > 0 {
+				// Use first organization as default
+				ctx = context.WithValue(ctx, contextKeyOrganizationID, orgs[0].ID)
+			}
+		}
+
 		next.ServeHTTP(w, r.WithContext(ctx))
 	}
 }

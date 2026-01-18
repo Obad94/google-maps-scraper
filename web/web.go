@@ -42,6 +42,11 @@ type Server struct {
 	auditRepo      AuditLogRepository
 }
 
+// ServerOptions contains optional dependencies for the server
+type ServerOptions struct {
+	MemberRepo OrganizationMemberRepository
+}
+
 func New(svc *Service, addr string) (*Server, error) {
 	return NewWithAPIKeys(svc, nil, addr)
 }
@@ -51,6 +56,10 @@ func NewWithAPIKeys(svc *Service, apiKeySvc *APIKeyService, addr string) (*Serve
 }
 
 func NewWithAPIKeysAndAuth(svc *Service, apiKeySvc *APIKeyService, authSvc *AuthService, addr string) (*Server, error) {
+	return NewWithOptions(svc, apiKeySvc, authSvc, addr, nil)
+}
+
+func NewWithOptions(svc *Service, apiKeySvc *APIKeyService, authSvc *AuthService, addr string, opts *ServerOptions) (*Server, error) {
 	ans := Server{
 		svc:       svc,
 		apiKeySvc: apiKeySvc,
@@ -64,6 +73,11 @@ func NewWithAPIKeysAndAuth(svc *Service, apiKeySvc *APIKeyService, authSvc *Auth
 			IdleTimeout:       120 * time.Second,
 			MaxHeaderBytes:    1 << 20,
 		},
+	}
+
+	// Set optional dependencies
+	if opts != nil {
+		ans.memberRepo = opts.MemberRepo
 	}
 
 	staticFS, err := fs.Sub(static, "static")
@@ -366,7 +380,7 @@ func (s *Server) applyAPIKeyAuth(next http.Handler) http.Handler {
 		}
 
 		// Validate API key
-		_, err := s.apiKeySvc.Validate(ctx, apiKey)
+		_, newCtx, err := s.apiKeySvc.Validate(ctx, apiKey)
 		if err != nil {
 			renderJSON(w, http.StatusUnauthorized, apiError{
 				Code:    http.StatusUnauthorized,
@@ -375,8 +389,8 @@ func (s *Server) applyAPIKeyAuth(next http.Handler) http.Handler {
 			return
 		}
 
-		// API key is valid, proceed to next handler
-		next.ServeHTTP(w, r)
+		// API key is valid, proceed to next handler with updated context
+		next.ServeHTTP(w, r.WithContext(newCtx))
 	})
 }
 

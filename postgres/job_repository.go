@@ -20,7 +20,7 @@ func NewJobRepository(db *sql.DB) web.JobRepository {
 }
 
 func (r *jobRepository) Get(ctx context.Context, id string) (web.Job, error) {
-	const q = `SELECT id, name, status, data, created_at, updated_at FROM jobs WHERE id = $1`
+	const q = `SELECT id, name, status, data, organization_id, created_by, created_at, updated_at FROM jobs WHERE id = $1`
 
 	row := r.db.QueryRowContext(ctx, q, id)
 
@@ -33,9 +33,17 @@ func (r *jobRepository) Create(ctx context.Context, job *web.Job) error {
 		return err
 	}
 
-	const q = `INSERT INTO jobs (id, name, status, data, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6)`
+	const q = `INSERT INTO jobs (id, name, status, data, organization_id, created_by, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
 
-	_, err = r.db.ExecContext(ctx, q, item.ID, item.Name, item.Status, item.Data, item.CreatedAt, item.UpdatedAt)
+	var orgID, createdBy interface{}
+	if item.OrganizationID.Valid {
+		orgID = item.OrganizationID.String
+	}
+	if item.CreatedBy.Valid {
+		createdBy = item.CreatedBy.String
+	}
+
+	_, err = r.db.ExecContext(ctx, q, item.ID, item.Name, item.Status, item.Data, orgID, createdBy, item.CreatedAt, item.UpdatedAt)
 	if err != nil {
 		return err
 	}
@@ -52,7 +60,7 @@ func (r *jobRepository) Delete(ctx context.Context, id string) error {
 }
 
 func (r *jobRepository) Select(ctx context.Context, params web.SelectParams) ([]web.Job, error) {
-	q := `SELECT id, name, status, data, created_at, updated_at FROM jobs`
+	q := `SELECT id, name, status, data, organization_id, created_by, created_at, updated_at FROM jobs`
 
 	var args []any
 	var conditions []string
@@ -124,12 +132,14 @@ func (r *jobRepository) Update(ctx context.Context, job *web.Job) error {
 // Helper types and functions
 
 type jobRow struct {
-	ID        string
-	Name      string
-	Status    string
-	Data      string
-	CreatedAt int64
-	UpdatedAt int64
+	ID             string
+	Name           string
+	Status         string
+	Data           string
+	OrganizationID sql.NullString
+	CreatedBy      sql.NullString
+	CreatedAt      int64
+	UpdatedAt      int64
 }
 
 type jobScannable interface {
@@ -139,7 +149,7 @@ type jobScannable interface {
 func rowToJobModel(row jobScannable) (web.Job, error) {
 	var item jobRow
 
-	err := row.Scan(&item.ID, &item.Name, &item.Status, &item.Data, &item.CreatedAt, &item.UpdatedAt)
+	err := row.Scan(&item.ID, &item.Name, &item.Status, &item.Data, &item.OrganizationID, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt)
 	if err != nil {
 		return web.Job{}, err
 	}
@@ -150,6 +160,13 @@ func rowToJobModel(row jobScannable) (web.Job, error) {
 		Status:    item.Status,
 		Date:      time.Unix(item.CreatedAt, 0).UTC(),
 		UpdatedAt: time.Unix(item.UpdatedAt, 0).UTC(),
+	}
+
+	if item.OrganizationID.Valid {
+		ans.OrganizationID = item.OrganizationID.String
+	}
+	if item.CreatedBy.Valid {
+		ans.CreatedBy = item.CreatedBy.String
 	}
 
 	err = json.Unmarshal([]byte(item.Data), &ans.Data)
@@ -166,12 +183,21 @@ func jobModelToRow(item *web.Job) (jobRow, error) {
 		return jobRow{}, err
 	}
 
-	return jobRow{
+	row := jobRow{
 		ID:        item.ID,
 		Name:      item.Name,
 		Status:    item.Status,
 		Data:      string(data),
 		CreatedAt: item.Date.Unix(),
 		UpdatedAt: time.Now().UTC().Unix(),
-	}, nil
+	}
+
+	if item.OrganizationID != "" {
+		row.OrganizationID = sql.NullString{String: item.OrganizationID, Valid: true}
+	}
+	if item.CreatedBy != "" {
+		row.CreatedBy = sql.NullString{String: item.CreatedBy, Valid: true}
+	}
+
+	return row, nil
 }

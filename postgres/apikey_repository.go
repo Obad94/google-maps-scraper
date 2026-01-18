@@ -18,7 +18,7 @@ func NewAPIKeyRepository(db *sql.DB) web.APIKeyRepository {
 }
 
 func (r *apiKeyRepo) Get(ctx context.Context, id string) (web.APIKey, error) {
-	const q = `SELECT id, name, key_hash, status, created_at, updated_at, last_used_at, expires_at
+	const q = `SELECT id, name, key_hash, status, organization_id, created_by, created_at, updated_at, last_used_at, expires_at
 		FROM api_keys WHERE id = $1`
 
 	row := r.db.QueryRowContext(ctx, q, id)
@@ -27,7 +27,7 @@ func (r *apiKeyRepo) Get(ctx context.Context, id string) (web.APIKey, error) {
 }
 
 func (r *apiKeyRepo) GetByKey(ctx context.Context, keyHash string) (web.APIKey, error) {
-	const q = `SELECT id, name, key_hash, status, created_at, updated_at, last_used_at, expires_at
+	const q = `SELECT id, name, key_hash, status, organization_id, created_by, created_at, updated_at, last_used_at, expires_at
 		FROM api_keys WHERE key_hash = $1`
 
 	row := r.db.QueryRowContext(ctx, q, keyHash)
@@ -37,8 +37,16 @@ func (r *apiKeyRepo) GetByKey(ctx context.Context, keyHash string) (web.APIKey, 
 
 func (r *apiKeyRepo) Create(ctx context.Context, apiKey *web.APIKey) error {
 	const q = `INSERT INTO api_keys
-		(id, name, key_hash, status, created_at, updated_at, last_used_at, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
+		(id, name, key_hash, status, organization_id, created_by, created_at, updated_at, last_used_at, expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`
+
+	var orgID, createdBy interface{}
+	if apiKey.OrganizationID != "" {
+		orgID = apiKey.OrganizationID
+	}
+	if apiKey.CreatedBy != "" {
+		createdBy = apiKey.CreatedBy
+	}
 
 	var lastUsedAt, expiresAt *time.Time
 	if apiKey.LastUsedAt != nil {
@@ -53,6 +61,8 @@ func (r *apiKeyRepo) Create(ctx context.Context, apiKey *web.APIKey) error {
 		apiKey.Name,
 		apiKey.KeyHash,
 		apiKey.Status,
+		orgID,
+		createdBy,
 		apiKey.CreatedAt,
 		apiKey.UpdatedAt,
 		lastUsedAt,
@@ -71,16 +81,36 @@ func (r *apiKeyRepo) Delete(ctx context.Context, id string) error {
 }
 
 func (r *apiKeyRepo) Select(ctx context.Context, params web.APIKeySelectParams) ([]web.APIKey, error) {
-	q := `SELECT id, name, key_hash, status, created_at, updated_at, last_used_at, expires_at
+	q := `SELECT id, name, key_hash, status, organization_id, created_by, created_at, updated_at, last_used_at, expires_at
 		FROM api_keys`
 
 	var args []interface{}
+	var conditions []string
 	argCount := 1
 
+	if params.OrganizationID != "" {
+		conditions = append(conditions, fmt.Sprintf("organization_id = $%d", argCount))
+		args = append(args, params.OrganizationID)
+		argCount++
+	}
+
+	if params.CreatedBy != "" {
+		conditions = append(conditions, fmt.Sprintf("created_by = $%d", argCount))
+		args = append(args, params.CreatedBy)
+		argCount++
+	}
+
 	if params.Status != "" {
-		q += fmt.Sprintf(` WHERE status = $%d`, argCount)
+		conditions = append(conditions, fmt.Sprintf("status = $%d", argCount))
 		args = append(args, params.Status)
 		argCount++
+	}
+
+	if len(conditions) > 0 {
+		q += " WHERE " + fmt.Sprintf("%s", conditions[0])
+		for i := 1; i < len(conditions); i++ {
+			q += " AND " + conditions[i]
+		}
 	}
 
 	q += " ORDER BY created_at DESC"
@@ -146,6 +176,7 @@ type scannable interface {
 
 func rowToAPIKey(row scannable) (web.APIKey, error) {
 	var apiKey web.APIKey
+	var orgID, createdBy sql.NullString
 	var lastUsedAt, expiresAt sql.NullTime
 
 	err := row.Scan(
@@ -153,6 +184,8 @@ func rowToAPIKey(row scannable) (web.APIKey, error) {
 		&apiKey.Name,
 		&apiKey.KeyHash,
 		&apiKey.Status,
+		&orgID,
+		&createdBy,
 		&apiKey.CreatedAt,
 		&apiKey.UpdatedAt,
 		&lastUsedAt,
@@ -162,6 +195,12 @@ func rowToAPIKey(row scannable) (web.APIKey, error) {
 		return web.APIKey{}, err
 	}
 
+	if orgID.Valid {
+		apiKey.OrganizationID = orgID.String
+	}
+	if createdBy.Valid {
+		apiKey.CreatedBy = createdBy.String
+	}
 	if lastUsedAt.Valid {
 		apiKey.LastUsedAt = &lastUsedAt.Time
 	}

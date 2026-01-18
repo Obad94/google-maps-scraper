@@ -28,18 +28,55 @@ func NewService(repo JobRepository, dataFolder string) *Service {
 }
 
 func (s *Service) Create(ctx context.Context, job *Job) error {
+	// Extract user and organization from context
+	user := getUserFromContext(ctx)
+	orgID := getOrganizationIDFromContext(ctx)
+
+	if orgID == "" {
+		return fmt.Errorf("organization context required")
+	}
+
+	// Populate organization_id and created_by
+	job.OrganizationID = orgID
+	if user != nil {
+		job.CreatedBy = user.ID
+	}
+
 	return s.repo.Create(ctx, job)
 }
 
 func (s *Service) All(ctx context.Context) ([]Job, error) {
-	return s.repo.Select(ctx, SelectParams{})
+	// Extract organization from context
+	orgID := getOrganizationIDFromContext(ctx)
+	if orgID == "" {
+		return nil, fmt.Errorf("organization context required")
+	}
+
+	return s.repo.Select(ctx, SelectParams{OrganizationID: orgID})
 }
 
 func (s *Service) Get(ctx context.Context, id string) (Job, error) {
-	return s.repo.Get(ctx, id)
+	job, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return Job{}, err
+	}
+
+	// Verify organization access
+	orgID := getOrganizationIDFromContext(ctx)
+	if orgID != "" && job.OrganizationID != orgID {
+		return Job{}, fmt.Errorf("job not found") // Don't leak existence
+	}
+
+	return job, nil
 }
 
 func (s *Service) Delete(ctx context.Context, id string) error {
+	// Verify ownership first
+	_, err := s.Get(ctx, id) // Uses ownership check
+	if err != nil {
+		return err
+	}
+
 	if strings.Contains(id, "/") || strings.Contains(id, "\\") || strings.Contains(id, "..") {
 		return fmt.Errorf("invalid file name")
 	}
@@ -58,6 +95,16 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 }
 
 func (s *Service) Update(ctx context.Context, job *Job) error {
+	// Verify ownership
+	existing, err := s.Get(ctx, job.ID) // Uses ownership check
+	if err != nil {
+		return err
+	}
+
+	// Preserve organization_id and created_by
+	job.OrganizationID = existing.OrganizationID
+	job.CreatedBy = existing.CreatedBy
+
 	return s.repo.Update(ctx, job)
 }
 
@@ -70,8 +117,8 @@ func (s *Service) SelectWorking(ctx context.Context) ([]Job, error) {
 }
 
 func (s *Service) Retry(ctx context.Context, id string) error {
-	// Get the job
-	job, err := s.repo.Get(ctx, id)
+	// Get the job (with ownership check)
+	job, err := s.Get(ctx, id)
 	if err != nil {
 		return fmt.Errorf("failed to get job: %w", err)
 	}
@@ -282,15 +329,28 @@ func (s *Service) GetResults(_ context.Context, id string) ([]gmaps.Entry, error
 }
 
 func (s *Service) ImportFromCSV(ctx context.Context, jobName string, csvData []byte) (*Job, error) {
+	// Extract user and organization from context
+	user := getUserFromContext(ctx)
+	orgID := getOrganizationIDFromContext(ctx)
+
+	if orgID == "" {
+		return nil, fmt.Errorf("organization context required")
+	}
+
 	// Create a new job for the imported data
 	jobID := uuid.New()
 	now := time.Now()
 	job := &Job{
-		ID:        jobID.String(),
-		Name:      jobName,
-		Status:    StatusOK,
-		Date:      now,
-		UpdatedAt: now,
+		ID:             jobID.String(),
+		OrganizationID: orgID,
+		Name:           jobName,
+		Status:         StatusOK,
+		Date:           now,
+		UpdatedAt:      now,
+	}
+
+	if user != nil {
+		job.CreatedBy = user.ID
 	}
 
 	// Parse CSV to validate
@@ -355,6 +415,14 @@ func (s *Service) ImportFromCSV(ctx context.Context, jobName string, csvData []b
 }
 
 func (s *Service) ImportFromJSON(ctx context.Context, jobName string, jsonData []byte) (*Job, error) {
+	// Extract user and organization from context
+	user := getUserFromContext(ctx)
+	orgID := getOrganizationIDFromContext(ctx)
+
+	if orgID == "" {
+		return nil, fmt.Errorf("organization context required")
+	}
+
 	// Parse JSON to validate
 	var entries []gmaps.Entry
 	if err := json.Unmarshal(jsonData, &entries); err != nil {
@@ -376,11 +444,16 @@ func (s *Service) ImportFromJSON(ctx context.Context, jobName string, jsonData [
 	jobID := uuid.New()
 	now := time.Now()
 	job := &Job{
-		ID:        jobID.String(),
-		Name:      jobName,
-		Status:    StatusOK,
-		Date:      now,
-		UpdatedAt: now,
+		ID:             jobID.String(),
+		OrganizationID: orgID,
+		Name:           jobName,
+		Status:         StatusOK,
+		Date:           now,
+		UpdatedAt:      now,
+	}
+
+	if user != nil {
+		job.CreatedBy = user.ID
 	}
 
 	// Write entries to CSV file

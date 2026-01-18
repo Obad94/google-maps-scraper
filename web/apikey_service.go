@@ -43,6 +43,17 @@ func (s *APIKeyService) HashAPIKey(key string) string {
 // Create creates a new API key
 // Returns the full API key (which should be shown to user only once) and the APIKey object
 func (s *APIKeyService) Create(ctx context.Context, name string, expiresAt *time.Time) (string, *APIKey, error) {
+	// Extract user and organization from context
+	user := getUserFromContext(ctx)
+	orgID := getOrganizationIDFromContext(ctx)
+
+	if orgID == "" {
+		return "", nil, fmt.Errorf("organization context required")
+	}
+	if user == nil {
+		return "", nil, fmt.Errorf("user context required")
+	}
+
 	// Generate new API key
 	key, err := s.GenerateAPIKey()
 	if err != nil {
@@ -54,13 +65,15 @@ func (s *APIKeyService) Create(ctx context.Context, name string, expiresAt *time
 
 	now := time.Now().UTC()
 	apiKey := &APIKey{
-		ID:        uuid.New().String(),
-		Name:      name,
-		KeyHash:   keyHash,
-		Status:    APIKeyStatusActive,
-		CreatedAt: now,
-		UpdatedAt: now,
-		ExpiresAt: expiresAt,
+		ID:             uuid.New().String(),
+		OrganizationID: orgID,
+		CreatedBy:      user.ID,
+		Name:           name,
+		KeyHash:        keyHash,
+		Status:         APIKeyStatusActive,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+		ExpiresAt:      expiresAt,
 	}
 
 	if err := apiKey.Validate(); err != nil {
@@ -75,10 +88,10 @@ func (s *APIKeyService) Create(ctx context.Context, name string, expiresAt *time
 	return key, apiKey, nil
 }
 
-// Validate validates an API key and returns the APIKey object if valid
-func (s *APIKeyService) Validate(ctx context.Context, key string) (*APIKey, error) {
+// Validate validates an API key and returns the APIKey object and updated context if valid
+func (s *APIKeyService) Validate(ctx context.Context, key string) (*APIKey, context.Context, error) {
 	if key == "" {
-		return nil, fmt.Errorf("API key is required")
+		return nil, ctx, fmt.Errorf("API key is required")
 	}
 
 	// Hash the provided key
@@ -87,12 +100,12 @@ func (s *APIKeyService) Validate(ctx context.Context, key string) (*APIKey, erro
 	// Look up the API key by hash
 	apiKey, err := s.repo.GetByKey(ctx, keyHash)
 	if err != nil {
-		return nil, fmt.Errorf("invalid API key")
+		return nil, ctx, fmt.Errorf("invalid API key")
 	}
 
 	// Check if the key is active
 	if !apiKey.IsActive() {
-		return nil, fmt.Errorf("API key is inactive or expired")
+		return nil, ctx, fmt.Errorf("API key is inactive or expired")
 	}
 
 	// Update last used timestamp
@@ -103,7 +116,12 @@ func (s *APIKeyService) Validate(ctx context.Context, key string) (*APIKey, erro
 		// The key is still valid even if we can't update last_used_at
 	}
 
-	return &apiKey, nil
+	// Inject organization ID into context
+	if apiKey.OrganizationID != "" {
+		ctx = context.WithValue(ctx, contextKeyOrganizationID, apiKey.OrganizationID)
+	}
+
+	return &apiKey, ctx, nil
 }
 
 // Get retrieves an API key by ID
@@ -113,30 +131,50 @@ func (s *APIKeyService) Get(ctx context.Context, id string) (*APIKey, error) {
 		return nil, fmt.Errorf("failed to get API key: %w", err)
 	}
 
+	// Verify organization access
+	orgID := getOrganizationIDFromContext(ctx)
+	if orgID != "" && apiKey.OrganizationID != orgID {
+		return nil, fmt.Errorf("API key not found") // Don't leak existence
+	}
+
 	return &apiKey, nil
 }
 
-// List retrieves all API keys
+// List retrieves all API keys for the current organization
 func (s *APIKeyService) List(ctx context.Context) ([]APIKey, error) {
-	return s.repo.Select(ctx, APIKeySelectParams{})
+	orgID := getOrganizationIDFromContext(ctx)
+	if orgID == "" {
+		return nil, fmt.Errorf("organization context required")
+	}
+
+	return s.repo.Select(ctx, APIKeySelectParams{OrganizationID: orgID})
 }
 
-// ListActive retrieves all active API keys
+// ListActive retrieves all active API keys for the current organization
 func (s *APIKeyService) ListActive(ctx context.Context) ([]APIKey, error) {
-	return s.repo.Select(ctx, APIKeySelectParams{Status: APIKeyStatusActive})
+	orgID := getOrganizationIDFromContext(ctx)
+	if orgID == "" {
+		return nil, fmt.Errorf("organization context required")
+	}
+
+	return s.repo.Select(ctx, APIKeySelectParams{
+		OrganizationID: orgID,
+		Status:         APIKeyStatusActive,
+	})
 }
 
 // Revoke revokes an API key by ID
 func (s *APIKeyService) Revoke(ctx context.Context, id string) error {
-	apiKey, err := s.repo.Get(ctx, id)
+	// Get and verify ownership
+	apiKey, err := s.Get(ctx, id)
 	if err != nil {
-		return fmt.Errorf("failed to get API key: %w", err)
+		return err
 	}
 
 	apiKey.Status = APIKeyStatusRevoked
 	apiKey.UpdatedAt = time.Now().UTC()
 
-	if err := s.repo.Update(ctx, &apiKey); err != nil {
+	if err := s.repo.Update(ctx, apiKey); err != nil {
 		return fmt.Errorf("failed to revoke API key: %w", err)
 	}
 
@@ -145,6 +183,11 @@ func (s *APIKeyService) Revoke(ctx context.Context, id string) error {
 
 // Delete permanently deletes an API key
 func (s *APIKeyService) Delete(ctx context.Context, id string) error {
+	// Verify ownership first
+	if _, err := s.Get(ctx, id); err != nil {
+		return err
+	}
+
 	if err := s.repo.Delete(ctx, id); err != nil {
 		return fmt.Errorf("failed to delete API key: %w", err)
 	}

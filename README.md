@@ -184,10 +184,19 @@ The scraper has [built-in LeadsDB integration](#export-to-leadsdb) - just add yo
 
 ### Web UI
 
+> **⚠️ PostgreSQL Required:** The Web UI requires a PostgreSQL database. Set the `DATABASE_URL` environment variable before starting:
+> ```bash
+> export DATABASE_URL="postgres://user:password@localhost:5432/dbname"
+> ```
+
 Start the web interface with a single command:
 
 ```bash
-mkdir -p gmapsdata && docker run -v $PWD/gmapsdata:/gmapsdata -p 8080:8080 gosom/google-maps-scraper -data-folder /gmapsdata
+mkdir -p gmapsdata && docker run \
+  -e DATABASE_URL="postgres://user:password@localhost:5432/dbname" \
+  -v $PWD/gmapsdata:/gmapsdata \
+  -p 8080:8080 \
+  gosom/google-maps-scraper -data-folder /gmapsdata
 ```
 
 Then open http://localhost:8080 in your browser.
@@ -233,6 +242,189 @@ When running the web server, a full REST API is available:
 Full OpenAPI 3.0.3 documentation available at:
 - **Swagger UI** (Interactive API testing): http://localhost:8080/api/swagger
 - **Redoc** (Read-only documentation): http://localhost:8080/api/docs
+
+---
+
+## 🔐 Multi-Tenancy & Authentication
+
+The scraper includes a built-in **organization-based multi-tenancy system** with secure user authentication and API key management.
+
+### Architecture Overview
+
+**Organization-Based Isolation:**
+- All data (jobs, API keys) is scoped to **organizations**, not individual users
+- Users can belong to multiple organizations with different roles
+- Complete data isolation ensures users only see their organization's resources
+
+**Authentication Methods:**
+- **Session-based** (cookies) for Web UI access
+- **API Keys** for programmatic/REST API access
+- Hybrid support: APIs work with both methods
+
+### Getting Started
+
+#### 1. User Registration
+
+```bash
+# Register a new account (Web UI)
+Visit http://localhost:8080/register
+
+# Or use the API
+curl -X POST http://localhost:8080/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "user@example.com",
+    "password": "secure_password",
+    "first_name": "John",
+    "last_name": "Doe"
+  }'
+```
+
+**On registration:**
+- A default organization is automatically created for the user
+- The user becomes the organization **owner** with full permissions
+
+#### 2. User Login
+
+```bash
+# Login (Web UI)
+Visit http://localhost:8080/login
+
+# Or use the API
+curl -X POST http://localhost:8080/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "user@example.com",
+    "password": "secure_password"
+  }'
+```
+
+Returns a `session_token` stored in an HTTP-only cookie for web access.
+
+#### 3. API Key Management
+
+**Create an API Key** (for programmatic access):
+
+```bash
+# Via Web UI: http://localhost:8080/apikeys
+
+# Or via API (requires session authentication)
+curl -X POST http://localhost:8080/api/v1/apikeys \
+  -H "Cookie: session_token=YOUR_SESSION_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Production API Key",
+    "expires_at": null
+  }'
+```
+
+**Use API Key in Requests:**
+
+```bash
+# Option 1: Authorization Bearer header (recommended)
+curl -H "Authorization: Bearer gms_your_api_key_here" \
+  http://localhost:8080/api/v1/jobs
+
+# Option 2: X-API-Key header
+curl -H "X-API-Key: gms_your_api_key_here" \
+  http://localhost:8080/api/v1/jobs
+
+# Option 3: Query parameter
+curl "http://localhost:8080/api/v1/jobs?api_key=gms_your_api_key_here"
+```
+
+### Roles & Permissions
+
+| Role | Permissions |
+|------|-------------|
+| **Owner** | Full control: manage organization, billing, delete org, all admin permissions |
+| **Admin** | Manage members, jobs, API keys, and organization settings |
+| **Member** | Create and manage own jobs, view organization jobs |
+| **Viewer** | Read-only access to jobs and data |
+
+### Data Isolation
+
+**How it works:**
+- Jobs are created with `organization_id` and `created_by` fields
+- API keys belong to a specific organization
+- All database queries filter by organization automatically
+- Cross-organization access is denied (returns 404 to prevent info leakage)
+
+**Security guarantees:**
+- ✅ Users can only access their organization's jobs and API keys
+- ✅ API keys are scoped to one organization
+- ✅ Database queries enforce organization filtering
+- ✅ Role-based permissions restrict destructive operations
+
+### Organization Management
+
+**Invite Users to Your Organization:**
+
+```bash
+# Via API
+curl -X POST http://localhost:8080/api/v1/organizations/{org_id}/members \
+  -H "Authorization: Bearer YOUR_SESSION_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "teammate@example.com",
+    "role": "member"
+  }'
+```
+
+**List Organizations:**
+
+```bash
+curl http://localhost:8080/api/v1/organizations \
+  -H "Authorization: Bearer YOUR_SESSION_TOKEN"
+```
+
+### Security Best Practices
+
+1. **API Key Security:**
+   - Store API keys securely (environment variables, secret managers)
+   - Never commit API keys to version control
+   - Rotate keys periodically
+   - Use separate keys for different environments (dev, staging, prod)
+
+2. **Password Security:**
+   - Passwords are hashed with bcrypt (cost factor 10)
+   - Minimum 8 characters recommended
+   - Consider using password managers
+
+3. **Session Security:**
+   - Sessions expire after 30 days
+   - Stored as SHA-256 hashes
+   - HTTP-only cookies prevent XSS attacks
+   - SameSite: Strict mode enabled
+
+4. **Access Control:**
+   - Assign minimum required roles (principle of least privilege)
+   - Review organization members regularly
+   - Revoke access for departing team members
+
+### Migration from Single-User Setup
+
+If upgrading from a version without multi-tenancy:
+1. Existing jobs/API keys will be assigned to a "Legacy Organization"
+2. First registered user becomes the owner
+3. No data is lost during migration
+
+### Troubleshooting
+
+**"Organization context required" errors:**
+- Ensure you're authenticated (session cookie or API key)
+- Verify your account belongs to an organization
+- Check that your session hasn't expired
+
+**Can't see jobs/API keys:**
+- Confirm you're viewing the correct organization
+- Check your role has sufficient permissions
+- Verify the resources belong to your organization
+
+**API key authentication failing:**
+- Ensure the key starts with `gms_`
+- Check the key hasn't been revoked or expired
+- Verify the key belongs to the correct organization
 
 ---
 
@@ -338,6 +530,17 @@ chmod +x setup.sh
    ```
 
 6. **Run the Web UI**
+
+   **PostgreSQL Setup (Required for Web UI):**
+   ```bash
+   # Start PostgreSQL (using Docker Compose)
+   docker-compose -f docker-compose.dev.yaml up -d
+
+   # Or set DATABASE_URL to your existing PostgreSQL instance
+   export DATABASE_URL="postgres://postgres:postgres@localhost:5432/postgres"
+   ```
+
+   **Start the Web UI:**
    ```bash
    mkdir -p gmapsdata
    ./google-maps-scraper -web -data-folder gmapsdata
@@ -659,6 +862,8 @@ Email extraction is **disabled by default**. When enabled, the scraper visits ea
 ## Advanced Usage
 
 ### PostgreSQL Database Provider
+
+> **📌 Important:** PostgreSQL is **required** for the Web UI and multi-tenancy features. The CLI can still run without PostgreSQL when using file-based output (CSV/JSON).
 
 For distributed scraping across multiple machines:
 
