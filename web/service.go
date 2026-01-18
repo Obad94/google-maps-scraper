@@ -192,50 +192,57 @@ func (s *Service) GetResults(_ context.Context, id string) ([]gmaps.Entry, error
 			continue
 		}
 
+		// Parse based on CsvHeaders() order:
+		// 0:input_id, 1:link, 2:title, 3:category, 4:address, 5:open_hours, 6:popular_times,
+		// 7:website, 8:phone, 9:plus_code, 10:review_count, 11:review_rating, 12:reviews_per_rating,
+		// 13:latitude, 14:longitude, 15:cid, 16:status, 17:descriptions, 18:reviews_link,
+		// 19:thumbnail, 20:timezone, 21:price_range, 22:data_id, 23:place_id, 24:place_id_url,
+		// 25:images, 26:reservations, 27:order_online, 28:menu, 29:owner, 30:complete_address,
+		// 31:about, 32:user_reviews, 33:user_reviews_extended, 34:emails
 		entry := gmaps.Entry{
 			ID:          record[0],
 			Link:        record[1],
-			PlaceID:     record[2],
-			PlaceIDURL:  record[3],
-			Title:       record[4],
-			Category:    record[5],
-			Address:     record[6],
-			WebSite:     record[9],
-			Phone:       record[10],
-			PlusCode:    record[11],
-			Cid:         record[17],
-			Status:      record[18],
-			Description: record[19],
-			ReviewsLink: record[20],
-			Thumbnail:   record[21],
-			Timezone:    record[22],
-			PriceRange:  record[23],
-			DataID:      record[24],
+			Title:       record[2],
+			Category:    record[3],
+			Address:     record[4],
+			WebSite:     record[7],
+			Phone:       record[8],
+			PlusCode:    record[9],
+			Cid:         record[15],
+			Status:      record[16],
+			Description: record[17],
+			ReviewsLink: record[18],
+			Thumbnail:   record[19],
+			Timezone:    record[20],
+			PriceRange:  record[21],
+			DataID:      record[22],
+			PlaceID:     record[23],
+			PlaceIDURL:  record[24],
 		}
 
 		// Parse numeric fields
-		if record[12] != "" {
-			entry.ReviewCount, _ = strconv.Atoi(record[12])
+		if record[10] != "" {
+			entry.ReviewCount, _ = strconv.Atoi(record[10])
+		}
+		if record[11] != "" {
+			entry.ReviewRating, _ = strconv.ParseFloat(record[11], 64)
 		}
 		if record[13] != "" {
-			entry.ReviewRating, _ = strconv.ParseFloat(record[13], 64)
+			entry.Latitude, _ = strconv.ParseFloat(record[13], 64)
 		}
-		if record[15] != "" {
-			entry.Latitude, _ = strconv.ParseFloat(record[15], 64)
-		}
-		if record[16] != "" {
-			entry.Longtitude, _ = strconv.ParseFloat(record[16], 64)
+		if record[14] != "" {
+			entry.Longtitude, _ = strconv.ParseFloat(record[14], 64)
 		}
 
 		// Parse JSON fields
-		if record[7] != "" && record[7] != "null" {
-			_ = json.Unmarshal([]byte(record[7]), &entry.OpenHours)
+		if record[5] != "" && record[5] != "null" && record[5] != "{}" {
+			_ = json.Unmarshal([]byte(record[5]), &entry.OpenHours)
 		}
-		if record[8] != "" && record[8] != "null" {
-			_ = json.Unmarshal([]byte(record[8]), &entry.PopularTimes)
+		if record[6] != "" && record[6] != "null" && record[6] != "{}" {
+			_ = json.Unmarshal([]byte(record[6]), &entry.PopularTimes)
 		}
-		if record[14] != "" && record[14] != "null" {
-			_ = json.Unmarshal([]byte(record[14]), &entry.ReviewsPerRating)
+		if record[12] != "" && record[12] != "null" {
+			_ = json.Unmarshal([]byte(record[12]), &entry.ReviewsPerRating)
 		}
 		if record[25] != "" && record[25] != "null" {
 			_ = json.Unmarshal([]byte(record[25]), &entry.Images)
