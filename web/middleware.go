@@ -130,6 +130,62 @@ func extractSessionToken(r *http.Request) string {
 	return ""
 }
 
+// APIOrSessionAuthMiddleware supports both API key and session authentication
+// It tries API key first (for programmatic access), then falls back to session (for web UI)
+func (s *Server) APIOrSessionAuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		// First, try API key authentication (if apiKeySvc is available)
+		if s.apiKeySvc != nil {
+			apiKey := extractAPIKey(r)
+			if apiKey != "" {
+				// Validate API key
+				_, err := s.apiKeySvc.Validate(ctx, apiKey)
+				if err == nil {
+					// API key is valid, proceed
+					next.ServeHTTP(w, r)
+					return
+				}
+				// API key provided but invalid - return error immediately
+				renderJSON(w, http.StatusUnauthorized, apiError{
+					Code:    http.StatusUnauthorized,
+					Message: "Invalid or expired API key: " + err.Error(),
+				})
+				return
+			}
+		}
+
+		// No API key provided, try session authentication
+		token := extractSessionToken(r)
+		if token == "" {
+			renderJSON(w, http.StatusUnauthorized, apiError{
+				Code:    http.StatusUnauthorized,
+				Message: "Authentication required. Provide API key via Authorization header (Bearer token) or X-API-Key header, or log in via web UI.",
+			})
+			return
+		}
+
+		// Validate session
+		user, _, err := s.authSvc.ValidateSession(ctx, token)
+		if err != nil {
+			http.SetCookie(w, &http.Cookie{
+				Name:     "session_token",
+				Value:    "",
+				Path:     "/",
+				HttpOnly: true,
+				MaxAge:   -1,
+			})
+			renderJSON(w, http.StatusUnauthorized, apiError{Code: http.StatusUnauthorized, Message: "Invalid or expired session"})
+			return
+		}
+
+		// Inject user into context
+		ctx = context.WithValue(ctx, contextKeyUser, user)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
 // getUserFromContext retrieves the user from the request context
 func getUserFromContext(ctx context.Context) *User {
 	user, ok := ctx.Value(contextKeyUser).(*User)

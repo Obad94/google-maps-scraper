@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"time"
 
 	"github.com/gosom/google-maps-scraper/web"
@@ -77,7 +78,7 @@ func (r *apiKeyRepo) Select(ctx context.Context, params web.APIKeySelectParams) 
 	argCount := 1
 
 	if params.Status != "" {
-		q += ` WHERE status = $` + string(rune(argCount))
+		q += fmt.Sprintf(` WHERE status = $%d`, argCount)
 		args = append(args, params.Status)
 		argCount++
 	}
@@ -85,7 +86,7 @@ func (r *apiKeyRepo) Select(ctx context.Context, params web.APIKeySelectParams) 
 	q += " ORDER BY created_at DESC"
 
 	if params.Limit > 0 {
-		q += ` LIMIT $` + string(rune(argCount))
+		q += fmt.Sprintf(` LIMIT $%d`, argCount)
 		args = append(args, params.Limit)
 	}
 
