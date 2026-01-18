@@ -22,6 +22,8 @@ type AuthService struct {
 	userRepo    UserRepository
 	sessionRepo UserSessionRepository
 	auditRepo   AuditLogRepository
+	orgRepo     OrganizationRepository
+	memberRepo  OrganizationMemberRepository
 }
 
 func NewAuthService(userRepo UserRepository, sessionRepo UserSessionRepository, auditRepo AuditLogRepository) *AuthService {
@@ -29,6 +31,17 @@ func NewAuthService(userRepo UserRepository, sessionRepo UserSessionRepository, 
 		userRepo:    userRepo,
 		sessionRepo: sessionRepo,
 		auditRepo:   auditRepo,
+	}
+}
+
+// NewAuthServiceWithOrg creates an AuthService with organization support for multi-tenancy
+func NewAuthServiceWithOrg(userRepo UserRepository, sessionRepo UserSessionRepository, auditRepo AuditLogRepository, orgRepo OrganizationRepository, memberRepo OrganizationMemberRepository) *AuthService {
+	return &AuthService{
+		userRepo:    userRepo,
+		sessionRepo: sessionRepo,
+		auditRepo:   auditRepo,
+		orgRepo:     orgRepo,
+		memberRepo:  memberRepo,
 	}
 }
 
@@ -61,6 +74,45 @@ func (s *AuthService) Register(ctx context.Context, email, password, firstName, 
 
 	if err := s.userRepo.Create(ctx, user); err != nil {
 		return nil, fmt.Errorf("failed to create user: %w", err)
+	}
+
+	// Create default organization for the user (multi-tenancy support)
+	if s.orgRepo != nil && s.memberRepo != nil {
+		orgName := fmt.Sprintf("%s's Organization", firstName)
+		if firstName == "" {
+			orgName = fmt.Sprintf("%s's Organization", email)
+		}
+		
+		org := &Organization{
+			ID:          uuid.New().String(),
+			Name:        orgName,
+			Slug:        fmt.Sprintf("org-%s", user.ID[:8]),
+			Description: "Default organization",
+			Status:      OrganizationStatusActive,
+			Settings:    make(map[string]interface{}),
+			CreatedAt:   time.Now(),
+			UpdatedAt:   time.Now(),
+		}
+		
+		if err := s.orgRepo.Create(ctx, org); err != nil {
+			// Log error but don't fail registration
+			fmt.Printf("Warning: failed to create default organization: %v\n", err)
+		} else {
+			// Add user as owner of the organization
+			member := &OrganizationMember{
+				ID:             uuid.New().String(),
+				OrganizationID: org.ID,
+				UserID:         user.ID,
+				Role:           RoleOwner,
+				JoinedAt:       time.Now(),
+				CreatedAt:      time.Now(),
+				UpdatedAt:      time.Now(),
+			}
+			
+			if err := s.memberRepo.Create(ctx, member); err != nil {
+				fmt.Printf("Warning: failed to add user to organization: %v\n", err)
+			}
+		}
 	}
 
 	// Audit log

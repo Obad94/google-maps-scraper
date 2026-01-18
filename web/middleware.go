@@ -272,7 +272,6 @@ func (s *Server) WebAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		if s.memberRepo != nil {
 			orgs, err := s.memberRepo.GetUserOrganizations(ctx, user.ID)
 			if err == nil && len(orgs) > 0 {
-				// Use first organization as default
 				ctx = context.WithValue(ctx, contextKeyOrganizationID, orgs[0].ID)
 			}
 		}

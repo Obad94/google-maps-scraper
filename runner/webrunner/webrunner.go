@@ -64,7 +64,10 @@ func New(cfg *runner.Config) (runner.Runner, error) {
 	userRepo := postgres.NewUserRepository(pgDB)
 	sessionRepo := postgres.NewUserSessionRepository(pgDB)
 	memberRepo := postgres.NewOrganizationMemberRepository(pgDB)
-	authSvc := web.NewAuthService(userRepo, sessionRepo, nil) // nil for audit repo
+	orgRepo := postgres.NewOrganizationRepository(pgDB)
+	
+	// Use NewAuthServiceWithOrg for multi-tenancy support (creates default org on registration)
+	authSvc := web.NewAuthServiceWithOrg(userRepo, sessionRepo, nil, orgRepo, memberRepo)
 	log.Printf("PostgreSQL connected successfully - all data will be stored in PostgreSQL (jobs, API keys, authentication)")
 
 	// Create server with API key support, auth service, and member repo for multi-tenancy
