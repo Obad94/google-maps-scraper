@@ -18,7 +18,8 @@ func main() {
 	// Load .env file
 	_ = godotenv.Load()
 
-	fmt.Println("=== Proxy Verification Tool ===\n")
+	fmt.Println("=== Proxy Verification Tool ===")
+	fmt.Println()
 
 	// Get your real IP (without proxy)
 	fmt.Println("1. Checking your real IP (without proxy)...")
