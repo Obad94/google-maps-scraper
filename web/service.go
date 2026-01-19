@@ -68,6 +68,14 @@ func (s *Service) StopJob(ctx context.Context, id string) error {
 
 	cancel()
 
+	// Mark as finished immediately so UI/API reflect completion after stop.
+	job.Status = StatusOK
+	job.UpdatedAt = time.Now().UTC()
+
+	if err := s.repo.Update(ctx, &job); err != nil {
+		return fmt.Errorf("failed to persist stopped job: %w", err)
+	}
+
 	return nil
 }
 
