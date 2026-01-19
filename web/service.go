@@ -221,10 +221,15 @@ func (s *Service) GetResults(_ context.Context, id string) ([]gmaps.Entry, error
 	// Read header
 	_, err = reader.Read()
 	if err != nil {
+		// If file is empty or only has BOM, return empty array instead of error
+		if err.Error() == "EOF" {
+			return []gmaps.Entry{}, nil
+		}
 		return nil, fmt.Errorf("failed to read csv header: %w", err)
 	}
 
-	var results []gmaps.Entry
+	// Initialize as empty slice instead of nil to ensure JSON marshals to [] not null
+	results := make([]gmaps.Entry, 0)
 
 	for {
 		record, err := reader.Read()

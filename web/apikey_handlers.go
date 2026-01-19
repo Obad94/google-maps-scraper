@@ -2,6 +2,8 @@ package web
 
 import (
 	"encoding/json"
+	"fmt"
+	"log"
 	"net/http"
 	"time"
 )
@@ -209,7 +211,8 @@ func (s *Server) apiKeysPage(w http.ResponseWriter, r *http.Request) {
 	// Get all API keys
 	apiKeys, err := s.apiKeySvc.List(r.Context())
 	if err != nil {
-		http.Error(w, "Failed to load API keys", http.StatusInternalServerError)
+		log.Printf("Failed to load API keys: %v", err)
+		http.Error(w, fmt.Sprintf("Failed to load API keys: %v", err), http.StatusInternalServerError)
 		return
 	}
 

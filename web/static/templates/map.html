@@ -131,7 +131,12 @@
         async function initMap() {
             // Get results from the API
             const response = await fetch(`/api/v1/jobs/${jobId}/results`);
-            const places = await response.json();
+            let places = await response.json();
+
+            // Handle null or missing data
+            if (!places || !Array.isArray(places)) {
+                places = [];
+            }
 
             // Update place count
             document.getElementById('place-count').textContent = places.length;
@@ -141,7 +146,7 @@
             let validPlaces = places.filter(p => p.latitude && p.longtitude);
 
             if (validPlaces.length === 0) {
-                alert('No places with valid coordinates found!');
+                alert('No results found for this job. The search may not have returned any data.');
                 return;
             }
 

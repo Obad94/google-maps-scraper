@@ -2,8 +2,13 @@ package web
 
 import (
 	"context"
+	"fmt"
+	"log"
 	"net/http"
 	"strings"
+	"time"
+
+	"github.com/google/uuid"
 )
 
 type contextKey string
@@ -107,13 +112,13 @@ func (s *Server) SessionAuthMiddleware(next http.Handler) http.Handler {
 		// Inject user into context
 		ctx := context.WithValue(r.Context(), contextKeyUser, user)
 
-		// Get user's first organization and inject into context
-		if s.memberRepo != nil {
-			orgs, err := s.memberRepo.GetUserOrganizations(ctx, user.ID)
-			if err == nil && len(orgs) > 0 {
-				// Use first organization as default
-				ctx = context.WithValue(ctx, contextKeyOrganizationID, orgs[0].ID)
-			}
+		// Ensure user has an organization and inject into context
+		orgID, err := s.ensureUserHasOrganization(ctx, user)
+		if err != nil {
+			log.Printf("Error ensuring user %s has organization: %v", user.Email, err)
+			// Continue without organization for backward compatibility
+		} else {
+			ctx = context.WithValue(ctx, contextKeyOrganizationID, orgID)
 		}
 
 		next.ServeHTTP(w, r.WithContext(ctx))
@@ -194,13 +199,13 @@ func (s *Server) APIOrSessionAuthMiddleware(next http.Handler) http.Handler {
 		// Inject user into context
 		ctx = context.WithValue(ctx, contextKeyUser, user)
 
-		// Get user's first organization and inject into context
-		if s.memberRepo != nil {
-			orgs, err := s.memberRepo.GetUserOrganizations(ctx, user.ID)
-			if err == nil && len(orgs) > 0 {
-				// Use first organization as default
-				ctx = context.WithValue(ctx, contextKeyOrganizationID, orgs[0].ID)
-			}
+		// Ensure user has an organization and inject into context
+		orgID, err := s.ensureUserHasOrganization(ctx, user)
+		if err != nil {
+			log.Printf("Error ensuring user %s has organization: %v", user.Email, err)
+			// Continue without organization for backward compatibility
+		} else {
+			ctx = context.WithValue(ctx, contextKeyOrganizationID, orgID)
 		}
 
 		next.ServeHTTP(w, r.WithContext(ctx))
@@ -232,6 +237,64 @@ func getOrganizationIDFromContext(ctx context.Context) string {
 		return ""
 	}
 	return orgID
+}
+
+// ensureUserHasOrganization ensures that a user has at least one organization
+// If the user has no organizations, it creates a default one
+func (s *Server) ensureUserHasOrganization(ctx context.Context, user *User) (string, error) {
+	// Check if repositories are available
+	if s.memberRepo == nil || s.orgRepo == nil {
+		return "", fmt.Errorf("organization repositories not configured")
+	}
+
+	// Get user's organizations
+	orgs, err := s.memberRepo.GetUserOrganizations(ctx, user.ID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get user organizations: %w", err)
+	}
+
+	// If user already has organizations, return the first one
+	if len(orgs) > 0 {
+		return orgs[0].ID, nil
+	}
+
+	// User has no organization - create a default one
+	orgName := user.FirstName + "'s Organization"
+	if user.FirstName == "" {
+		orgName = user.Email + "'s Organization"
+	}
+
+	org := &Organization{
+		ID:          uuid.New().String(),
+		Name:        orgName,
+		Slug:        fmt.Sprintf("org-%s", user.ID[:8]),
+		Description: "Default organization",
+		Status:      OrganizationStatusActive,
+		Settings:    make(map[string]interface{}),
+		CreatedAt:   time.Now().UTC(),
+		UpdatedAt:   time.Now().UTC(),
+	}
+
+	if err := s.orgRepo.Create(ctx, org); err != nil {
+		return "", fmt.Errorf("failed to create default organization: %w", err)
+	}
+
+	// Add user as owner of the organization
+	member := &OrganizationMember{
+		ID:             uuid.New().String(),
+		OrganizationID: org.ID,
+		UserID:         user.ID,
+		Role:           RoleOwner,
+		JoinedAt:       time.Now().UTC(),
+		CreatedAt:      time.Now().UTC(),
+		UpdatedAt:      time.Now().UTC(),
+	}
+
+	if err := s.memberRepo.Create(ctx, member); err != nil {
+		return "", fmt.Errorf("failed to add user to organization: %w", err)
+	}
+
+	return org.ID, nil
 }
 
 // WebAuthMiddleware protects web pages by redirecting to login if not authenticated
@@ -268,13 +331,14 @@ func (s *Server) WebAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// Inject user into context
 		ctx := context.WithValue(r.Context(), contextKeyUser, user)
 
-		// Get user's first organization and inject into context
-		if s.memberRepo != nil {
-			orgs, err := s.memberRepo.GetUserOrganizations(ctx, user.ID)
-			if err == nil && len(orgs) > 0 {
-				ctx = context.WithValue(ctx, contextKeyOrganizationID, orgs[0].ID)
-			}
+		// Ensure user has an organization and inject into context
+		orgID, err := s.ensureUserHasOrganization(ctx, user)
+		if err != nil {
+			log.Printf("Error ensuring user %s has organization: %v", user.Email, err)
+			http.Error(w, fmt.Sprintf("Failed to load organization: %v", err), http.StatusInternalServerError)
+			return
 		}
+		ctx = context.WithValue(ctx, contextKeyOrganizationID, orgID)
 
 		next.ServeHTTP(w, r.WithContext(ctx))
 	}

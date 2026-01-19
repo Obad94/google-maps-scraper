@@ -55,7 +55,8 @@
       "Bash(done)",
       "Bash(git grep:*)",
       "Bash(git commit:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(powershell.exe -Command \"$env:PGPASSWORD=''postgres''; psql -U postgres -h localhost -d google_maps_scraper -c ''\\\\d api_keys''\")"
     ],
     "deny": [],
     "ask": []

@@ -70,9 +70,11 @@ func New(cfg *runner.Config) (runner.Runner, error) {
 	authSvc := web.NewAuthServiceWithOrg(userRepo, sessionRepo, nil, orgRepo, memberRepo)
 	log.Printf("PostgreSQL connected successfully - all data will be stored in PostgreSQL (jobs, API keys, authentication)")
 
-	// Create server with API key support, auth service, and member repo for multi-tenancy
+	// Create server with API key support, auth service, and all required repos for multi-tenancy
 	srv, err := web.NewWithOptions(svc, apiKeySvc, authSvc, cfg.Addr, &web.ServerOptions{
 		MemberRepo: memberRepo,
+		OrgRepo:    orgRepo,
+		UserRepo:   userRepo,
 	})
 	if err != nil {
 		return nil, err

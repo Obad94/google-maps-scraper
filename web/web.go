@@ -45,6 +45,8 @@ type Server struct {
 // ServerOptions contains optional dependencies for the server
 type ServerOptions struct {
 	MemberRepo OrganizationMemberRepository
+	OrgRepo    OrganizationRepository
+	UserRepo   UserRepository
 }
 
 func New(svc *Service, addr string) (*Server, error) {
@@ -78,6 +80,8 @@ func NewWithOptions(svc *Service, apiKeySvc *APIKeyService, authSvc *AuthService
 	// Set optional dependencies
 	if opts != nil {
 		ans.memberRepo = opts.MemberRepo
+		ans.orgRepo = opts.OrgRepo
+		ans.userRepo = opts.UserRepo
 	}
 
 	staticFS, err := fs.Sub(static, "static")
