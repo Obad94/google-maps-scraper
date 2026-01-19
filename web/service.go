@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,13 +19,56 @@ import (
 type Service struct {
 	repo       JobRepository
 	dataFolder string
+	mu         sync.Mutex
+	cancelers  map[string]context.CancelFunc
 }
 
 func NewService(repo JobRepository, dataFolder string) *Service {
 	return &Service{
 		repo:       repo,
 		dataFolder: dataFolder,
+		cancelers:  make(map[string]context.CancelFunc),
 	}
+}
+
+// RegisterJobCancel stores a cancel function for a running job so it can be stopped from the UI/API.
+func (s *Service) RegisterJobCancel(id string, cancel context.CancelFunc) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.cancelers[id] = cancel
+}
+
+// ClearJobCancel removes the cancel function once a job has finished.
+func (s *Service) ClearJobCancel(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	delete(s.cancelers, id)
+}
+
+// StopJob requests cancellation of an in-flight job.
+func (s *Service) StopJob(ctx context.Context, id string) error {
+	job, err := s.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	if job.Status != StatusWorking {
+		return fmt.Errorf("job %s is not running", id)
+	}
+
+	s.mu.Lock()
+	cancel, ok := s.cancelers[id]
+	s.mu.Unlock()
+
+	if !ok {
+		return fmt.Errorf("job %s cannot be stopped right now", id)
+	}
+
+	cancel()
+
+	return nil
 }
 
 func (s *Service) Create(ctx context.Context, job *Job) error {

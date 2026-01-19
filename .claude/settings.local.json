@@ -56,7 +56,12 @@
       "Bash(git grep:*)",
       "Bash(git commit:*)",
       "Bash(curl:*)",
-      "Bash(powershell.exe -Command \"$env:PGPASSWORD=''postgres''; psql -U postgres -h localhost -d google_maps_scraper -c ''\\\\d api_keys''\")"
+      "Bash(powershell.exe -Command \"$env:PGPASSWORD=''postgres''; psql -U postgres -h localhost -d google_maps_scraper -c ''\\\\d api_keys''\")",
+      "Bash(cat:*)",
+      "Bash(python -m json.tool:*)",
+      "Bash(for i in {1..10})",
+      "Bash(if [ -f \"gmapsdata/da218ded-1f3b-45bf-9a95-e45f41ce8c9a.csv\" ])",
+      "Bash(then wc -l \"gmapsdata/da218ded-1f3b-45bf-9a95-e45f41ce8c9a.csv\")"
     ],
     "deny": [],
     "ask": []

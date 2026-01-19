@@ -65,7 +65,7 @@ func New(cfg *runner.Config) (runner.Runner, error) {
 	sessionRepo := postgres.NewUserSessionRepository(pgDB)
 	memberRepo := postgres.NewOrganizationMemberRepository(pgDB)
 	orgRepo := postgres.NewOrganizationRepository(pgDB)
-	
+
 	// Use NewAuthServiceWithOrg for multi-tenancy support (creates default org on registration)
 	authSvc := web.NewAuthServiceWithOrg(userRepo, sessionRepo, nil, orgRepo, memberRepo)
 	log.Printf("PostgreSQL connected successfully - all data will be stored in PostgreSQL (jobs, API keys, authentication)")
@@ -304,6 +304,15 @@ func (w *webrunner) recoverStuckJobs(ctx context.Context) error {
 }
 
 func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) error {
+	// Create a cancelable context per job so we can stop it from the UI/API.
+	jobCtx, jobCancel := context.WithCancel(ctx)
+	ctx = jobCtx
+	w.svc.RegisterJobCancel(job.ID, jobCancel)
+	defer func() {
+		jobCancel()
+		w.svc.ClearJobCancel(job.ID)
+	}()
+
 	log.Printf("job %s: changing status to 'working'", job.ID)
 	job.Status = web.StatusWorking
 

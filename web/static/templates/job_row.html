@@ -13,6 +13,12 @@
             <a href="/download?id={{.ID}}" download class="button download-button">Download{{ if eq .Status "failed" }} (Partial){{ end }}</a>
             <a href="/map?id={{.ID}}" target="_blank" class="button map-button">View on Map</a>
         {{ end }}
+        {{ if eq .Status "working" }}
+            <button hx-post="/stop?id={{.ID}}"
+                    hx-target="closest tr"
+                    hx-swap="outerHTML"
+                    class="button stop-button">Stop</button>
+        {{ end }}
         {{ if eq .Status "failed" }}
             <button hx-post="/retry?id={{.ID}}"
                     hx-target="closest tr"

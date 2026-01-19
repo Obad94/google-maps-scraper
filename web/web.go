@@ -23,15 +23,15 @@ import (
 var static embed.FS
 
 type Server struct {
-	tmpl       map[string]*template.Template
-	srv        *http.Server
-	svc        *Service
-	apiKeySvc  *APIKeyService
+	tmpl      map[string]*template.Template
+	srv       *http.Server
+	svc       *Service
+	apiKeySvc *APIKeyService
 
 	// Multi-tenancy services
-	authSvc    *AuthService
-	orgSvc     *OrganizationService
-	memberSvc  *MemberService
+	authSvc   *AuthService
+	orgSvc    *OrganizationService
+	memberSvc *MemberService
 
 	// Repositories
 	userRepo       UserRepository
@@ -93,7 +93,7 @@ func NewWithOptions(svc *Service, apiKeySvc *APIKeyService, authSvc *AuthService
 	mux := http.NewServeMux()
 
 	mux.Handle("/static/", http.StripPrefix("/static/", fileServer))
-	
+
 	// Protected routes - require authentication
 	mux.HandleFunc("/scrape", ans.WebAuthMiddleware(ans.scrape))
 	mux.HandleFunc("/import", ans.WebAuthMiddleware(ans.importData))
@@ -106,6 +106,11 @@ func NewWithOptions(svc *Service, apiKeySvc *APIKeyService, authSvc *AuthService
 		r = requestWithID(r)
 
 		ans.delete(w, r)
+	}))
+	mux.HandleFunc("/stop", ans.WebAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		r = requestWithID(r)
+
+		ans.stop(w, r)
 	}))
 	mux.HandleFunc("/map", ans.WebAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		r = requestWithID(r)
@@ -216,6 +221,23 @@ func NewWithOptions(svc *Service, apiKeySvc *APIKeyService, authSvc *AuthService
 		}
 
 		ans.apiRetryJob(w, r)
+	})))
+
+	mux.Handle("/api/v1/jobs/{id}/stop", ans.APIOrSessionAuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r = requestWithID(r)
+
+		if r.Method != http.MethodPost {
+			ans := apiError{
+				Code:    http.StatusMethodNotAllowed,
+				Message: "Method not allowed",
+			}
+
+			renderJSON(w, http.StatusMethodNotAllowed, ans)
+
+			return
+		}
+
+		ans.apiStopJob(w, r)
 	})))
 
 	mux.Handle("/api/v1/jobs/import", ans.APIOrSessionAuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -576,7 +598,7 @@ func (s *Server) scrape(w http.ResponseWriter, r *http.Request) {
 		newJob.Data.HybridMode = true
 	case "browserapi":
 		newJob.Data.BrowserAPIMode = true
-	// default case is "regular" mode - all mode flags remain false
+		// default case is "regular" mode - all mode flags remain false
 	}
 
 	// Handle keywords - for BrowserAPI mode, use place_types dropdown; otherwise use keywords textarea
@@ -845,6 +867,63 @@ func (s *Server) retry(w http.ResponseWriter, r *http.Request) {
 	jobView := JobView{
 		Job:        job,
 		HasResults: s.svc.HasResults(job.ID),
+	}
+
+	w.Header().Set("Content-Type", "text/html")
+	_ = tmpl.Execute(w, jobView)
+}
+
+// stop handles user-initiated cancellation of a running job via the UI.
+func (s *Server) stop(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
+		return
+	}
+
+	stopID, ok := getIDFromRequest(r)
+	if !ok {
+		http.Error(w, "Invalid ID", http.StatusUnprocessableEntity)
+
+		return
+	}
+
+	job, err := s.svc.Get(r.Context(), stopID.String())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+
+		return
+	}
+
+	if job.Status != StatusWorking {
+		http.Error(w, "Job is not running", http.StatusBadRequest)
+
+		return
+	}
+
+	if err := s.svc.StopJob(r.Context(), stopID.String()); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+
+		return
+	}
+
+	updatedJob, err := s.svc.Get(r.Context(), stopID.String())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+
+		return
+	}
+
+	tmpl, ok := s.tmpl["static/templates/job_row.html"]
+	if !ok {
+		http.Error(w, "missing template", http.StatusInternalServerError)
+
+		return
+	}
+
+	jobView := JobView{
+		Job:        updatedJob,
+		HasResults: s.svc.HasResults(updatedJob.ID),
 	}
 
 	w.Header().Set("Content-Type", "text/html")
@@ -1128,6 +1207,68 @@ func (s *Server) apiRetryJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	renderJSON(w, http.StatusOK, job)
+}
+
+func (s *Server) apiStopJob(w http.ResponseWriter, r *http.Request) {
+	id, ok := getIDFromRequest(r)
+	if !ok {
+		apiError := apiError{
+			Code:    http.StatusUnprocessableEntity,
+			Message: "Invalid ID",
+		}
+
+		renderJSON(w, http.StatusUnprocessableEntity, apiError)
+
+		return
+	}
+
+	job, err := s.svc.Get(r.Context(), id.String())
+	if err != nil {
+		apiError := apiError{
+			Code:    http.StatusNotFound,
+			Message: http.StatusText(http.StatusNotFound),
+		}
+
+		renderJSON(w, http.StatusNotFound, apiError)
+
+		return
+	}
+
+	if job.Status != StatusWorking {
+		apiError := apiError{
+			Code:    http.StatusBadRequest,
+			Message: "Job is not running",
+		}
+
+		renderJSON(w, http.StatusBadRequest, apiError)
+
+		return
+	}
+
+	if err := s.svc.StopJob(r.Context(), id.String()); err != nil {
+		apiError := apiError{
+			Code:    http.StatusBadRequest,
+			Message: err.Error(),
+		}
+
+		renderJSON(w, http.StatusBadRequest, apiError)
+
+		return
+	}
+
+	updatedJob, err := s.svc.Get(r.Context(), id.String())
+	if err != nil {
+		apiError := apiError{
+			Code:    http.StatusInternalServerError,
+			Message: err.Error(),
+		}
+
+		renderJSON(w, http.StatusInternalServerError, apiError)
+
+		return
+	}
+
+	renderJSON(w, http.StatusOK, updatedJob)
 }
 
 func (s *Server) apiGetResults(w http.ResponseWriter, r *http.Request) {
