@@ -392,7 +392,17 @@ func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) error {
 
 	if job.Data.HybridMode {
 		// Execute new hybrid workflow directly (fast API -> nearby browser)
-		writers := []scrapemate.ResultWriter{csvwriter.NewCsvWriter(csv.NewWriter(outfile))}
+		// Create CSV writer with explicit reference for flushing
+		csvWriter := csv.NewWriter(outfile)
+		defer func() {
+			// Ensure CSV buffer is flushed even if job is stopped/canceled
+			csvWriter.Flush()
+			if err := csvWriter.Error(); err != nil {
+				log.Printf("job %s: WARNING - CSV flush error: %v", job.ID, err)
+			}
+		}()
+		writers := []scrapemate.ResultWriter{csvwriter.NewCsvWriter(csvWriter)}
+
 		// Build a temporary config copy with job-specific parameters (lat/lon/zoom/radius/depth/email/lang)
 		geo := coords // already constructed from job.Data.Lat/Lon above
 		tmpCfg := *w.cfg
@@ -431,7 +441,17 @@ func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) error {
 		return nil // Hybrid completed; normal seedJobs path skipped
 	} else if job.Data.BrowserAPIMode {
 		// Execute BrowserAPI workflow directly (Google Places API -> browser scrape -> nearby)
-		writers := []scrapemate.ResultWriter{csvwriter.NewCsvWriter(csv.NewWriter(outfile))}
+		// Create CSV writer with explicit reference for flushing
+		csvWriter := csv.NewWriter(outfile)
+		defer func() {
+			// Ensure CSV buffer is flushed even if job is stopped/canceled
+			csvWriter.Flush()
+			if err := csvWriter.Error(); err != nil {
+				log.Printf("job %s: WARNING - CSV flush error: %v", job.ID, err)
+			}
+		}()
+		writers := []scrapemate.ResultWriter{csvwriter.NewCsvWriter(csvWriter)}
+
 		// Build a temporary config copy with job-specific parameters
 		geo := coords // already constructed from job.Data.Lat/Lon above
 		tmpCfg := *w.cfg

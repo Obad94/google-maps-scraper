@@ -123,7 +123,7 @@ Collect data without facing CAPTCHAs, IP bans, or geo-restrictions
 | **Completely Free & Open Source** | MIT licensed, no hidden costs or usage limits |
 | **Multiple Interfaces** | CLI, Web UI, REST API - use what fits your workflow |
 | **High Performance** | ~120 places/minute with optimized concurrency |
-| **34+ Data Points** | Business details, reviews, emails, coordinates, place_id, and more |
+| **35+ Data Points** | Business details, reviews, emails, coordinates, place_id, and more |
 | **Production Ready** | Scale from a single machine to Kubernetes clusters |
 | **Flexible Output** | CSV, JSON, PostgreSQL, S3, LeadsDB, or custom plugins |
 | **Proxy Support** | Built-in SOCKS5/HTTP/HTTPS proxy rotation |
@@ -236,8 +236,11 @@ When running the web server, a full REST API is available:
 | `/api/v1/jobs` | GET | List all jobs |
 | `/api/v1/jobs/{id}` | GET | Get job details |
 | `/api/v1/jobs/{id}` | DELETE | Delete a job |
+| `/api/v1/jobs/{id}/stop` | POST | Stop a running job |
+| `/api/v1/jobs/{id}/retry` | POST | Retry a failed job |
 | `/api/v1/jobs/{id}/download` | GET | Download results as CSV |
 | `/api/v1/jobs/{id}/results` | GET | Get job results as JSON (Google Maps API format) |
+| `/api/v1/jobs/import` | POST | Import jobs from file |
 
 Full OpenAPI 3.0.3 documentation available at:
 - **Swagger UI** (Interactive API testing): http://localhost:8080/api/swagger
@@ -586,7 +589,7 @@ You can safely run with multiple categories:
 
 | Feature | Description |
 |---------|-------------|
-| **34+ Data Points** | Business name, address, phone, website, reviews, coordinates, place_id, and more |
+| **35+ Data Points** | Business name, address, phone, website, reviews, coordinates, place_id, and more |
 | **Email Extraction** | Optional crawling of business websites for email addresses |
 | **Multiple Output Formats** | CSV, JSON, PostgreSQL, S3, LeadsDB, or custom plugins |
 | **Proxy Support** | SOCKS5, HTTP, HTTPS with authentication |
@@ -720,7 +723,7 @@ BrowserAPI mode uses Google Places API to get nearby places, then scrapes each p
 ## Extracted Data Points
 
 <details>
-<summary><strong>Click to expand all 34 data points</strong></summary>
+<summary><strong>Click to expand all 35 data points</strong></summary>
 
 | # | Field | Description |
 |---|-------|-------------|
